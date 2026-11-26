@@ -10,3 +10,7 @@ proof-logs/
 .pnp/
 .solver-tools-backup.*
 pnp_current.sh
+.venv-sat/
+*.cnf
+*.lrat
+sat-results/
