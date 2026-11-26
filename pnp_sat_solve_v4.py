@@ -430,6 +430,27 @@ def self_test(solver,seconds,chunk):
     w={"gates":[("or",0,2),("and",1,3)],"output":4}
     q=check_star(3,v1.graph(3,[(0,1),(1,2)]),w,0,True)
     assert q["orN"]==1 and q["lam"]==1 and q["orN_minus_lam"]==0,q
+    # A disjoint path adds one actual Lambda OR to the two-junk witness.
+    # At base 4 equality holds only if Lambda is excluded from the count.
+    n,edges=6,[(0,1),(3,4),(3,5)]
+    w={"gates":[("or",0,1),("and",1,2),("or",6,7),
+                ("and",1,8),("and",0,9),("or",4,5),
+                ("and",3,11),("or",10,12)],"output":13}
+    masks=v1.graph(n,edges)
+    assert v1.verify(n,masks,w)
+    q=check_star(n,masks,w,4,True)
+    assert q["valid"] and q["lam"]==1 and q["orN_minus_lam"]==2,q
+    enc=build(n,edges,8,"full",False,4)
+    orig=enc.original
+    fwd={x:i for i,x in enumerate(enc.reverse) if i}
+    assumptions=[]
+    for j,(op,a,b) in enumerate(w["gates"]):
+        assumptions.extend(fwd[orig.v(k,j,z)] for k,z in
+                           ((0,0 if op=="and" else 1),(1,min(a,b)),(2,max(a,b))))
+    assumptions.append(fwd[orig.v(6,0,w["output"])])
+    with Solver(name=solver,bootstrap_with=enc.cnf) as sol:
+        assert sol.solve(assumptions=assumptions),"Lambda-positive witness excluded"
+        assert check_star(n,masks,enc.decode(sol.get_model()),4,True)["valid"]
     print("SAT V4 SELF TEST OK",flush=True)
 
 
