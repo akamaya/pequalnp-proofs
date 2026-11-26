@@ -163,3 +163,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 k=10から1へ探索。既定は追加のv6冗長ゲート制約なし。UNSAT済みのkは同じcheckpointで再実行時にスキップする。TIMEOUTは再探索。--top-count K で個別ケースの実験が可能（checkpointなし）。チェックポイントは信頼済みの実験ファイルのみ使うこと。
+
+## SAT v8（private edge / 境界真理値表による意味的冗長性排除）
+
+v7 WSL実測: self-test PASS、21ゲート、4並列、20秒ずつ、50.39秒。k=10 UNSAT (0.102秒, 67619節)、k=9 UNSAT (8.918秒, 76155節)、k=1..8 TIMEOUT。
+
+v8はv7の縮約CNFに最小回路の必要条件を追加する。privateモード: 各top ANDは他のtop ANDが真にならない固有の辺入力を少なくとも1つ持つ。そうでなければ出力ORから取り除いて小さい回路にできる。semanticモード（既定）: さらに各実ゲートの二つの入力が境界真理値表上で両方向に異なる行を持つことを要求。比較可能なら片方の入力でゲートを置換でき、最小真行・極大偽行で同じ出力となる単調回路は全入力で同じ辺関数を計算する。noneは追加制約なし。Leanでの正当性の形式化は未実施。v8実機未検証。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v8.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v8.py --case l2260 --gates 21 --jobs 4 --seconds 30 --mode semantic --seed-v7 sat-results/l2260-v7-tops.json --checkpoint sat-results/l2260-v8-semantic.json
+```
+
+v7のチェックポイントはfingerprintを照合したうえでUNSATのみ引継ぎ可能（CNFに制約を追加してもUNSATは維持）。証明書を検証した結果ではなく、信頼済みのローカル実験結果である。TIMEOUTは最初から探索。v1〜v7と提出用mainは変更しない。
