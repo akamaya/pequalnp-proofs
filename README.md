@@ -303,3 +303,19 @@ git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools
 ```
 
 exportは実機未検証。これは証明書作成前のCNF保存であり、UNSATの証明書を生成・検証する機能ではない。別途proof-producing SAT solver、証明書検査、Leanでの元定理からの縮約証明が必要。
+
+## SAT v15（OR集合の実現可能性による事前排除）
+
+v14 WSL self-test PASS。600秒再探索では新規UNSATなし、k=5/6/7の累積cutは49/1457/9、合計1515（新規1287）。100分割中86排除・14残り。k=5は内側探索、k=7は外側探索が主なボトルネック。
+
+v15はv14と同じ外側/内側CNFを使い、候補supportの抽象OR DAGが予算内で構築できるか先に調べる。各異なる複合supportに1個のORが必要であり、任意の複合supportは2個の真部分集合の和集合に分解できる必要がある。原子は無料。全分解を探索し、予算内の抽象DAGが存在しないことを確定できた場合だけ、不可能なroot集合（greedyで縮小）から外側cutを作る。Lambda、junk順序等を無視した緩和なので、可能と判定しても従来の内側SATで検証する。探索ノード上限や最大集合サイズを超えた場合も内側SATへ送る。pnp_or_budget_v1.pyの自己テストは4原子の独立全列挙による1160条件と一致（開発環境）。v15全体のWSL実行は未検証。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v15.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v15.py --case l2260 --gates 21 --jobs 3 --seconds 600 --outer-for 7=g4 --inner-for 5=cadical195 --seed-v11 sat-results/l2260-v11-exact.json --seed-v14 sat-results/l2260-v14-cegar.json --checkpoint sat-results/l2260-v15-cegar.json
+```
+
+k=6は従来のCaDiCaL外側/Glucose4内側、k=7のみ外側をGlucose4、k=5のみ内側をCaDiCaLで比較する。fingerprintを照合してv14のUNSATとcutを継承。v14のcheckpointは変更しない。prefilter_rejected, prefilter_unknown, prefilter_seconds, inner_candidatesは今回の探索中の集計であり、cut_countは継承を含む。v15の新規cutに対応する形式的証明・証明書は未作成。既存v9/v11/v14のcutなしUNSAT用のexportは別途実行可能。提出用mainは変更しない。
