@@ -367,3 +367,21 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v17同様、TIMEOUT時にSAT内部学習節は保存しない。既存コード・checkpoint・提出用mainは変更しない。Lean縮約・証明書検証は未完成。
+
+## SAT v19（グラフ固有の入力露出制約・正確なOR数による分割）
+
+v18 WSL compact/600秒/3並列: k=5,6,7全TIMEOUT。CNF節数80449/44396/39971、変数数6158/6638/7118。残り14分割。v18自己テストのログは未確認。
+
+L2260の11頂点16辺を独立列挙した結果、4-cycleなし、極大独立集合24、最小頂点被覆7。4/5/6/7頂点をstar中心とした場合の最大被覆辺数13/14/15/16。v19では極大独立集合Iとv∉Iに対し、f(I)=0,f(I∪{v})=1の変化を利用する。vの直接AND読者がないなら、少なくとも1個の直接OR読者はOR-closureの元入力supportがIと交差してはならない。そうでなければvの全直接読者の値は両入力で変化せず、DAGの帰納法により出力も変化しない。L2260では170条件。既存のCNFの論理的帰結だが、直接reader変数に符号化して伝播を促す。独立Python全列挙では3入力1〜3ゲートの1518回路、グラフ関数を計算する回路の1125条件で成立を確認。Lean形式化は未完成。
+
+さらに未解決のOR実数14分割を個別に解く。各kについて従来と同じ最大予算のCNFとv16のcutを使用し、active suffixの境界にunit clauseを追加する。既にUNSATのOR数を再探索しない。v18以前のcheckpointは変更しない。v19全体の実機テストは未実行。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v19.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v19.py --case l2260 --gates 21 --jobs 4 --seconds 120 --solver cadical195 --solver-for 7=g4 --outer-mode compact --seed-v11 sat-results/l2260-v11-exact.json --seed-v16 sat-results/l2260-v16-cegar.json --checkpoint sat-results/l2260-v19-exposure.json
+```
+
+TIMEOUT時にSAT内部学習節は保存しない。既存のUNSATを継承するが形式的な証明書ではない。提出用mainは変更しない。
