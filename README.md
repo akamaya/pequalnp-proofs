@@ -464,3 +464,20 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_pa
 cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v1.py --top-count 6 --or-count 6 --jobs 8 --seconds 5 --solver cadical195
 ```
 
+### Sweep v1 WSL result: (6,6)
+
+6482/6482 UNSAT、TIMEOUT 0、1251.305秒（8並列、5秒/cube、cadical195）。候補b=5:5065、b=6:1417。暫定93/100、残り7。Lean形式検証未完。
+
+### Sweep v2
+
+v1と同じ候補列挙・同じSAT式・同じrunを使用。v1は各結果保存時にJSON全体を書き直すため、残りの大規模分割にはSQLite WALを採用（各結果1トランザクション、synchronous=NORMAL）。親だけDBへアクセスし、workerはspawn起動。電源断で最近の結果が失われた場合は再探索する。既存v1のJSON checkpointは変更・自動移行しない。新規v2の自己テストおよび実機速度は未検証。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --top-count 5 --or-count 7 --jobs 8 --seconds 5 --solver cadical195
+```
+
+候補15188分割。100件ごとに進捗、未解決分割は同一コマンドで再探索。v1の実行時間増加が保存処理によるものかは未計測。
