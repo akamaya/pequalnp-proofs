@@ -253,3 +253,21 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v12のcheckpointを再開する際は同じseed-v11を指定し、seedのUNSAT集合が変化した場合は別checkpointを使用。Lean形式化・UNSAT証明書は未完成。v1〜v11と提出用mainは変更しない。
+
+## SAT v13（support CEGAR / UNSAT coreによる精密化）
+
+v12実測: k=5,6,7 RELAXED_SAT、k=4,8 TIMEOUT。新規UNSATなし (20.975秒)。v11 CaDiCaL 60秒再探索: (k,r)=(8,3),(5,4),(4,4) UNSAT、23分割残り (387.171秒)。全100分割中77 UNSAT。v12自己テスト結果は未確認。
+
+v13はsupport-only緩和とv9の実配線SATを接続する。外側で候補supportを生成し、内側で固定supportから実際のOR DAGを探索。内側UNSATならassumption coreを外側の変数へ写像して否定節を追加する。内側のAND入力順とtop順の対称性制約は解除し、外側のsupport順との不一致による誤排除を防ぐ。追加の下限: 任意のroot Sについて |S|-1個のORが必要であり、Sに含まれない異なる複合rootはそれぞれ別のORを必要とする。これを外側で符号化する。
+
+外側UNSATなら対象ケースを排除。内側SATなら復元回路の全入力・構造を検証するが、最小性そのものは未検証。TIMEOUTでも報告済みcore節をcheckpointに保存し、同一fingerprintで再開する。ソルバー内部の学習節そのものは保存しない。checkpointは信頼済みローカル実験に限る。v13実機未検証、Leanによる縮約・符号化・証明書検証は未完成。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v13.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v13.py --case l2260 --gates 21 --jobs 4 --seconds 60 --seed-v11 sat-results/l2260-v11-exact.json --checkpoint sat-results/l2260-v13-cegar.json
+```
+
+同じseedとcheckpointで再実行するとcoreを引継ぐ。v1〜v12、提出用mainは変更しない。
