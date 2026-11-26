@@ -125,3 +125,23 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 同じコマンドで再開。--seconds を増やす、--solver cadical195 に変えることは可能。split/profile/lexを変更する場合は別checkpointを使う。v5実機テスト未実施。提出用mainとv1〜v4は変更しない。
+
+## SAT v6（最小回路の冗長ゲート排除）
+
+v5実測: 21ゲート / second分割20個 / 4並列 / 8秒ずつ、41.508秒。second-20のみUNSAT、19個TIMEOUT。
+
+v6では IsLeastAO の必要条件を追加。ANDだけ、またはORだけを通る依存経路で比較可能な2入力を同時に読むゲートは、吸収律により片方の入力へ置換できるので最小回路には存在しない。--prune absorb-dup は同一演算・同一入力対の重複ゲートも排除。--prune none はv5相当。既知の最小回路が残ること、直接/間接吸収と重複回路が排除されることを確認する自己テストを追加。Leanでの正当性の形式化は未実施。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v6.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v6.py --case l2260 --gates 21 --jobs 4 --seconds 8 --prune absorb --checkpoint sat-results/l2260-v6-absorb.json
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v6.py --case l2260 --gates 21 --jobs 4 --seconds 8 --prune absorb-dup --checkpoint sat-results/l2260-v6-absorb-dup.json
+```
+
+CNF変更のためv5のcheckpointを流用しない。v6はWSL未検証。探索結果は実験用で、Lean証明書ではない。
