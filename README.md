@@ -453,3 +453,14 @@ git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools
 ```bash
 cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v1.py --top-count 7 --or-count 5 --jobs 8 --seconds 5 --solver cadical195
 ```
+
+### Sweep v1 WSL result: (7,5)
+
+1272/1272 UNSAT、TIMEOUT 0、全体132.604秒（8並列、cadical195、5秒/cube）。候補はb=6:1190、b=7:82、Python列挙3.046秒。暫定92/100（SAT 88、グラフ分割併用4）、残り8。Lean形式化とUNSAT証明書検証は未完成。
+
+次の候補数最小ケースは(k,r)=(6,6)、v1の候補6482分割。既存sweepを変更せず実行する。checkpointはk/r/mode別に自動作成される。
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v1.py --top-count 6 --or-count 6 --jobs 8 --seconds 5 --solver cadical195
+```
+
