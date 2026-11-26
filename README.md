@@ -219,3 +219,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v9のfingerprintが一致した場合だけUNSATを引継ぐ。v10実機未検証。チェックポイントは自己の信頼済み実験結果に限定。正規化・最小性制約のLean形式化とUNSAT証明書は未完成。v1〜v9と提出用mainは変更しない。
+
+## SAT v11（内部OR実数による分割）
+
+v10 WSL self-test PASS、canonical / g4 / 4並列 / 60秒ずつ、120.483秒。k=4..8全てTIMEOUT、v9から継承した5ケースのみUNSAT。正規順序化の効果は確認できなかった。
+
+v11はv9のCNFに戻り、active ORが末尾連続である性質から実際の内部OR数r=0..(21-2k-1)で排他的・網羅的に分割する。各部分問題は最大2個のunit clauseの追加のみ。k=4..8なら45 cube。v9のfingerprintが一致した場合、既存のk=1,2,3,9,10のUNSATは引継ぎ可能。小さいrから探索し、初回はCaDiCaLを使用。checkpointは各cubeの結果を保存し、同じファイルでsolver/secondsを変えて再試行できる。TIMEOUTの学習節は保持しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v11.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v11.py --case l2260 --gates 21 --jobs 4 --seconds 5 --solver cadical195 --seed-v9 sat-results/l2260-v9.json --checkpoint sat-results/l2260-v11-exact.json
+```
+
+v11実機未検証。全分割UNSATでもLeanでの正規化・符号化・証明書の検証が必要。v1〜v10、提出用main、実行中LLMは変更しない。
