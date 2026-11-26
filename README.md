@@ -351,3 +351,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 同じseed/モードでのみ同一checkpointを使用する。v17は実機未検証。旧cutの数学的妥当性・縮約・証明書のLean形式化は未完成。v16以前のコード・checkpointおよび提出用mainは変更しない。
+
+## SAT v18（重複制約を除いたcompact SAT）
+
+v17 WSL light/600秒/3並列: k=5,6,7全TIMEOUT、CNF節数117387/91706/98341、変数数16355/19731/23231、14分割残り。v17自己テストのログは未確認。
+
+v18はv14の正確なOR DAG oracleを直接使い、v16の43322 cutをsupport変数へ写像する。v12のグラフ関数、h4/h5/h6、OR予算等の重複制約を取り除く。最小性に必要なsupport非包含、topの固有辺、supportによるAND入力順とtop順は維持する。固有辺評価には正例だけを追加。比較器は各bitにつき1個の変数と6節のmajorityを使用する。compact既定、canonicalはOR supportの厳密昇順も追加。旧cutの変数番号を照合する。自己テストは比較器全数検査、固定witness、cut写像、非包含制約、SAT/UNSATを含む。v18実機未検証。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v18.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v18.py --case l2260 --gates 21 --jobs 3 --seconds 600 --solver cadical195 --solver-for 7=g4 --outer-mode compact --seed-v11 sat-results/l2260-v11-exact.json --seed-v16 sat-results/l2260-v16-cegar.json --checkpoint sat-results/l2260-v18-compact.json
+```
+
+v17同様、TIMEOUT時にSAT内部学習節は保存しない。既存コード・checkpoint・提出用mainは変更しない。Lean縮約・証明書検証は未完成。
