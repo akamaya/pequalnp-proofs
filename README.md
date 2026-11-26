@@ -203,3 +203,19 @@ v1〜v8と提出用mainは変更しない。
 ### v9 修正: 未使用ゲート (2026-11-26)
 
 初回WSL自己テストでは、出力に到達しない2個のjunk ANDを持つ3ゲート回路がSATとなり、期待したUNSATと一致しなかった。出力関数の独立検証は正常だったが、最小回路に必要な全実ゲートの使用条件が符号化から抜けていた。修正版では両junkおよび全active ORに直接のreaderを要求し、復元回路の出力coneも独立検査する。報告された3ゲート回路を固定した回帰テストを追加。元のUNSAT期待値は変更しない。修正版はWSL未検証。旧v9のcheckpointは互換性なし。
+
+## SAT v10（OR集合の正規順序と包含冗長性）
+
+修正v9の本番実測: 60.513秒、k=1,2,3,9,10 UNSAT（各0.069,0.717,11.195,0.787,0.066秒）、k=4..8 TIMEOUT。修正v9自己テストの再実行ログは未確認。
+
+v10はv9と同じ符号化に、private edge、OR/ANDの2入力support集合が互いに包含されない制約、OR supportの厳密な昇順を追加する。最小回路では同じsupportのORは重複なので不要。ORからORへの依存はsupportの真包含を伴うため、整数maskの昇順にORスロットを並べ替えられる。--mode none/private/antichain/canonical（既定canonical）で比較可能。独立検査と比較器の64組全数テスト、冗長な強制モデルの拒否、非包含の強制モデルの受理を追加した。旧v9の回帰テストもmode noneで実行する。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v10.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v10.py --case l2260 --gates 21 --jobs 4 --seconds 60 --seed-v9 sat-results/l2260-v9.json --checkpoint sat-results/l2260-v10-canonical.json
+```
+
+v9のfingerprintが一致した場合だけUNSATを引継ぐ。v10実機未検証。チェックポイントは自己の信頼済み実験結果に限定。正規化・最小性制約のLean形式化とUNSAT証明書は未完成。v1〜v9と提出用mainは変更しない。
