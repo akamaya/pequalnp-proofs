@@ -93,3 +93,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 比較はtopform/star × Glucose4/CaDiCaL、encのみ、各20秒。conf_budget/solve_limitedによる途中統計をTIMEOUT時にも保持する。ソルバーによって対応状況は異なる。v3は実機未検証。v1/v2は変更しない。
+
+## SAT v4（h6 完全版）
+
+v3 WSL self-test PASS。20秒比較は全てTIMEOUT。衝突回数 topform/g4=362830, topform/cadical195=208305, star/g4=283199, star/cadical195=149215。衝突回数は解決までの進捗率ではない。
+
+v4 full は orN, lam, orN\\lam の厳密なカウントを h6 に追加する。OR closure は始点のゲート自身を含み、ORのみ通過する。単一入力の側を厳密に判定し、lam の所属を双方向に符号化。SAT時は独立評価でも検査する。既知回路のh6境界とlamの正の所属の強制モデルテストを追加した。v4はWSL未検証。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v4.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v4.py --case l2260 --gates 21 --profile full --no-lex --seconds 60 --solver g4 --chunk 20000
+```
+
+--compare は star/full × g4/cadical195。--chunk は各 solve_limited の衝突予算。IsLeastAOの最小性そのものと、Lean側の符号化の正当性・UNSAT証明書検証は未実装。v1〜v3は変更しない。
