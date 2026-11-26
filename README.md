@@ -385,3 +385,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 TIMEOUT時にSAT内部学習節は保存しない。既存のUNSATを継承するが形式的な証明書ではない。提出用mainは変更しない。
+
+## SAT v20（OR数分割間で学習節を保持）
+
+v19 WSL 300秒/4並列: (k,r)=(5,5) UNSAT 238.508秒、他12分割TIMEOUT、全体1143.914秒。前回の(6,4)と合わせ88/100分割排除。v19自己テストのログは未確認。
+
+v20はv19のCNFを変更せず、同じkのexact OR countを単位節ではなくassumptionとして1個のincremental SAT solverで切り替える。solve_limitedのconflict budgetを使い、UNSAT時にはassumptionの否定節を追加。kの異なる式間では学習を共有しない。各kのworkerから各cubeの結果を親プロセスへ返し、即時checkpoint保存する。--roundsで同じプロセス内でTIMEOUT cubeを再訪できる。プロセス終了後は学習節を保存しない。v19 seedのfingerprintを照合して既存UNSATを継承する。自己テストではfresh unit-clause solverとassumption solverを比較し、workerのSAT witnessも独立検証する。WSL実機未検証。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v20.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v20.py --case l2260 --gates 21 --jobs 3 --seconds 300 --rounds 2 --solver cadical195 --solver-for 7=g4 --outer-mode compact --seed-v11 sat-results/l2260-v11-exact.json --seed-v16 sat-results/l2260-v16-cegar.json --seed-v19 sat-results/l2260-v19-exposure.json --checkpoint sat-results/l2260-v20-incremental.json
+```
+
+最長のk=5 workerに5 cubeが残っているため2周すべてTIMEOUTなら約50分（conflict chunk超過時間を除く）。既存ファイル・checkpoint・提出用mainは変更しない。Lean縮約・証明書検証は未完成。
