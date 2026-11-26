@@ -109,3 +109,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 --compare は star/full × g4/cadical195。--chunk は各 solve_limited の衝突予算。IsLeastAOの最小性そのものと、Lean側の符号化の正当性・UNSAT証明書検証は未実装。v1〜v3は変更しない。
+
+## SAT v5（並列 cube-and-conquer / checkpoint）
+
+v4 WSL自己テストPASS。L-meta-2260 full/enc, g4, chunk=20000, 60秒TIMEOUT。13063変数、162365節、構築0.365秒、58.086秒時点で572947 conflicts / 204337742 propagations。
+
+v5はv4のCNFをそのまま使用し、正確に2個のdirty ANDがあることを利用して、後方のdirty gateの位置で20個に分割（21スロットの場合）。--split pair なら210個。全cubeをUNSATと判定した場合のみ全体UNSATとする。個々のcubeにunit clausesを加え、CPUプロセスを並列実行する。チェックポイントはCNFとcube定義のSHA256で照合し、UNSAT済みcubeをスキップする。TIMEOUTは次回に最初から再探索（学習節の保存なし）。SAT時はv4独立検査を行う。チェックポイントは信頼済みの自分の実験ファイルだけを使うこと。Lean証明書ではない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v5.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v5.py --case l2260 --gates 21 --jobs 4 --seconds 8 --checkpoint sat-results/l2260-v5-second.json
+```
+
+同じコマンドで再開。--seconds を増やす、--solver cadical195 に変えることは可能。split/profile/lexを変更する場合は別checkpointを使う。v5実機テスト未実施。提出用mainとv1〜v4は変更しない。
