@@ -145,3 +145,21 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 CNF変更のためv5のcheckpointを流用しない。v6はWSL未検証。探索結果は実験用で、Lean証明書ではない。
+
+## SAT v7（TopForm 出力OR網の除去）
+
+v6実測: absorb 185980節 / 13945変数、42.002秒、1/20 UNSAT。absorb-dup 250310節 / 13945変数、42.490秒、1/20 UNSAT。排除できたのはいずれもsecond-20のみ。v6自己テストPASS。
+
+v7は最小TopForm AO2回路を対象に、clean ORによる出力網をSAT探索から除き、top ANDの個数kで分割する。非空単純グラフの辺関数では入力自身はcleanでない。clean ORの両入力はcleanなので、ORをたどるとtop ANDに達する。TopFormと全ゲートの出力到達性から、これらのclean ORおよびtop ANDはANDの入力側に存在しない。最小回路の出力OR網はk-1ゲートに置換可能であり、残りのゲートを並べ替え、末尾にk個のtop ANDを置く。出力OR網はSATモデル復元時に追加する。21ゲートならk=1..10、内部スロット数=22-k。h6のサイズ項にk-1を加算して計算する。v4の独立検証を復元した全回路に対して実行する。
+
+この正規化とCNFの健全性はまだLeanで証明していない。UNSATは実験結果のみ。v7実機未検証。v1〜v6および提出用mainは変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v7.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v7.py --case l2260 --gates 21 --jobs 4 --seconds 20 --checkpoint sat-results/l2260-v7-tops.json
+```
+
+k=10から1へ探索。既定は追加のv6冗長ゲート制約なし。UNSAT済みのkは同じcheckpointで再実行時にスキップする。TIMEOUTは再探索。--top-count K で個別ケースの実験が可能（checkpointなし）。チェックポイントは信頼済みの実験ファイルのみ使うこと。
