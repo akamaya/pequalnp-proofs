@@ -287,3 +287,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v14は実機未検証。v13の元ファイルおよびv11/v13のcheckpointは変更しない。結果は実験用で、Leanによる形式的証明・証明書検証は未完成。
+
+## v14 180秒実測と証明書用CNFの出力
+
+v14 WSL本番: k=8 は外側のみUNSAT (137.703秒, candidate=0, cut=0)。k=5,6,7はTIMEOUT、保存cutはそれぞれ9,216,3、合計228。v11継承分を含め100分割中86排除、14残り。自己テスト再実行のログは未確認。次はv14を同一checkpointで再開し、探索予算を増やす。ソルバー内部学習節は引き継がないが、報告済みcutは引き継ぐ。
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v14.py --case l2260 --gates 21 --jobs 3 --seconds 600 --seed-v11 sat-results/l2260-v11-exact.json --seed-v13 sat-results/l2260-v13-cegar.json --checkpoint sat-results/l2260-v14-cegar.json
+```
+
+pnp_sat_export_v1.py は既存のv9/v11/v14 checkpointのfingerprintとCNFの節数・変数数を照合し、排除済みの式をDIMACSに出力する。v9の全予算UNSAT、v11の個別UNSAT、v14のcutなし外側UNSATのみを出力する。現ログからは20式（全予算7式、個別13式）で86分割をカバーする見込み。manifest.jsonに各CNFのSHA256とカバー範囲を記録。cut依存UNSATの証明書連結は未実装。出力はsat-results以下、提出用mainには触れない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && .venv-sat/bin/python -u pnp_sat_export_v1.py --self-test && .venv-sat/bin/python -u pnp_sat_export_v1.py
+```
+
+exportは実機未検証。これは証明書作成前のCNF保存であり、UNSATの証明書を生成・検証する機能ではない。別途proof-producing SAT solver、証明書検査、Leanでの元定理からの縮約証明が必要。
