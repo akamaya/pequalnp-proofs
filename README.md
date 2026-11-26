@@ -335,3 +335,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v15とCNFおよび変数番号は同じで、fingerprint照合後に旧cutとUNSATを移行する。projected_literals/full_root_literalsは新規prefilter cutの総リテラル数と、同じroot集合の完全一致cutの場合の総リテラル数。追加の射影探索がCPU時間を増やす可能性もあるので実測比較する。v16自己テスト・本番は未実行。Lean形式化・証明書は未完成。v15以前と提出用mainは変更しない。
+
+## SAT v17（外側・内側CNFの統合）
+
+v16 WSL本番600秒/3並列: k=5/6/7の新規cutは20747/480/0、累計39336/3958/28、計43322。新規候補21227はすべてprefilterで排除、内側SAT呼び出しなし。射影cutのリテラル削減はk=5で25.48%、k=6で31.52%。新規UNSATなし、14分割未解決。v16自己テストのログは未確認。k=7は候補生成も0件。
+
+v17はv14の正確なOR DAG oracleとsupport緩和CNFのsupport変数を同一変数に写像し、単一のSATソルバーで連言を解く。v16のfingerprintを照合してcutを共有変数に再配置し、解決済みkも継承する。light（既定）はv12の緩和、strongはv14の追加OR下限制約も含む。両モードとも最小性の必要条件を保持し、SATなら復元回路の全入力と構造を独立検証する。自己テストは既知の強制witness、cutの符号・変数対応、両モードのSAT/UNSATを検査する。新たな候補別cutの追加は行わず、TIMEOUT時は内部学習節を保存しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v17.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v17.py --case l2260 --gates 21 --jobs 3 --seconds 600 --solver cadical195 --solver-for 7=g4 --outer-mode light --seed-v11 sat-results/l2260-v11-exact.json --seed-v16 sat-results/l2260-v16-cegar.json --checkpoint sat-results/l2260-v17-light.json
+```
+
+同じseed/モードでのみ同一checkpointを使用する。v17は実機未検証。旧cutの数学的妥当性・縮約・証明書のLean形式化は未完成。v16以前のコード・checkpointおよび提出用mainは変更しない。
