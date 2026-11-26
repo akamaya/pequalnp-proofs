@@ -77,3 +77,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 6パターンを順番に実行。全てTIMEOUTなら約1分強。v1は変更しない。v2の実機テストは未実施。
+
+## SAT v3（L-meta-2260の構造制約と途中統計）
+
+v2実機テスト26ケースPASS。21ゲート、40入力行では6方式すべて10秒TIMEOUT。dense/enc2は3561変数、207518節、dense/encは3561変数、67083節。topform/encは3750変数、83845節。
+
+v3の star プロファイルは v2 topform に h4 (OR到達入力とstar側条件)、h5 (Ustarの辺ごとのjunkへのOR到達と真理値)、h7 (削除後のグラフの頂点被覆)、h6の弱い版 (非負のorN\\lam項を省略) を追加。IsLeastAOの最小性そのものとh6の完全版は未符号化。SAT時は全真理値表とこれらの構造制約を独立評価する。UNSATは実験結果のみ。Lean証明書は未実装。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v3.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v3.py --case l2260 --gates 21 --compare --seconds 20
+```
+
+比較はtopform/star × Glucose4/CaDiCaL、encのみ、各20秒。conf_budget/solve_limitedによる途中統計をTIMEOUT時にも保持する。ソルバーによって対応状況は異なる。v3は実機未検証。v1/v2は変更しない。
