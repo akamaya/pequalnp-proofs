@@ -421,3 +421,11 @@ Leanによる成分・first-merge補題と列挙の形式検証は未実装。�
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && g++ -O3 -std=c++17 -Wall -Wextra -pedantic pnp_graph_partition_v1.cpp -o /tmp/pnp_graph_partition_v1 && /tmp/pnp_graph_partition_v1 && g++ -O3 -std=c++17 -Wall -Wextra -pedantic pnp_graph_partition_v2.cpp -o /tmp/pnp_graph_partition_v2 && /tmp/pnp_graph_partition_v2
 ```
+
+## Graph partition v3
+
+[k=5,r=6の余剰OR対応とh6下限](graph_partition_v3.md)。878分割（b=5:809、b=6:69）。旧試作版391分割検査で390排除、1緩和候補。強化版の局所試験では139番が残存、870〜878番は全排除。全探索未完了のため暫定90/100から変更しない。4並列・分割ID範囲指定に対応。既存SAT checkpointと提出用mainは変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && g++ -O3 -std=c++17 -Wall -Wextra -pedantic pnp_graph_partition_v3.cpp -o /tmp/pnp_graph_partition_v3 && mkdir -p sat-results && seq 0 3 | xargs -P 4 -I{} bash -c 'set -o pipefail; /tmp/pnp_graph_partition_v3 "$1" 4 | tee "sat-results/l2260-graph-v3-$1.log"' _ {}
+```
