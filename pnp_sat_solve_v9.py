@@ -103,6 +103,21 @@ class Encoding:
                 if j==0:self.add(-bits[n]);self.add(-bits[n+1])
                 elif j==1:self.add(-bits[n+1])
         self.add(self.ands[1][0][1][n],self.ands[1][1][1][n])
+        # IsLeastAO implies every real gate is used. The symbolic
+        # dependency graph is acyclic (OR indices increase and junk
+        # operands cannot contain their own or later junk atoms).
+        # Require a direct reader for each junk and active OR, hence
+        # every retained gate lies in a terminal top AND's cone.
+        for a in (n,n+1):
+            readers=[sels[a] for pair in self.ors+self.ands
+                     for sels,_ in pair]
+            self.add(*readers)
+        for h in range(m):
+            a=q+h
+            readers=[sels[a] for pair in self.ors[h+1:]+self.ands
+                     for sels,_ in pair]
+            self.add(-self.active[h],*readers)
+
         # Symmetry: the terminal top ANDs can be sorted by first source.
         for j in range(2,k+1):
             for a,x in enumerate(self.ands[j][0][0]):
@@ -235,6 +250,18 @@ class Encoding:
         for w in tops[1:]:
             gates.append(("or",out,w));out=n+len(gates)-1
         if len(gates)>self.total:raise ValueError("gate bound violated")
+        # Independently verify every decoded gate reaches the output.
+        used=set()
+        stack=[out]
+        while stack:
+            w=stack.pop()
+            if w<n or w in used:continue
+            used.add(w)
+            _,a,b=gates[w-n]
+            stack.extend((a,b))
+        if len(used)!=len(gates):
+            raise ValueError("unused gate in decoded circuit")
+
         return {"gates":gates,"output":out,"top_count":self.k,
                 "internal_or_gates":sum(x in pos for x in self.active)}
 
@@ -273,6 +300,15 @@ def self_test(solver,seconds,chunk):
                     assert v1.verify(n,enc.masks,w)
                     q=v4.check_star(n,enc.masks,w,b,True)
                     assert q["valid"] and q["h6_lhs"]==q["h6_rhs"],q
+    # Regression: actual v9 failure reported on WSL. Two linked junk
+    # ANDs were unused by the output x0 AND x1. Fix their source
+    # choices explicitly; the strengthened encoding must reject them.
+    enc=Encoding(3,[(0,1)],3,1,0).build()
+    ass=[]
+    for pair,choices in zip(enc.ands,[(0,2),(2,3),(0,1)]):
+        for (sels,_),src in zip(pair,choices):ass.append(sels[src])
+    with Solver(name=solver,bootstrap_with=enc.cnf) as s:
+        assert not s.solve(assumptions=ass),"unused junk regression"
     for total,k,expected in ((3,1,"UNSAT"),(5,1,"SAT")):
         r=run((3,[(0,1)],total,k,0,solver,seconds,chunk))
         print("[TEST]",json.dumps(r),flush=True)
