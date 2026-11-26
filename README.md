@@ -319,3 +319,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 k=6は従来のCaDiCaL外側/Glucose4内側、k=7のみ外側をGlucose4、k=5のみ内側をCaDiCaLで比較する。fingerprintを照合してv14のUNSATとcutを継承。v14のcheckpointは変更しない。prefilter_rejected, prefilter_unknown, prefilter_seconds, inner_candidatesは今回の探索中の集計であり、cut_countは継承を含む。v15の新規cutに対応する形式的証明・証明書は未作成。既存v9/v11/v14のcutなしUNSAT用のexportは別途実行可能。提出用mainは変更しない。
+
+## SAT v16（射影によるOR予算cutの一般化）
+
+v15 WSL self-test PASS。600秒/3並列: k=5/6/7 の新規cut 18540/2021/19、累計18589/3478/28、合計22095。新規候補20580件はすべてOR予算prefilterで排除、内側SAT呼び出し0件。新規UNSATなし、86/100分割排除、14分割残り。候補排除件数は前回の16倍だが、探索空間の残り割合とは一致しない。
+
+v16では、OR DAGの全supportを原子集合Pに射影しても和集合演算が保存され、空集合・単元集合・重複集合の除去によりOR個数が増えない性質を使う。既存の不可能root coreから無関係な原子を除き、さらに原子を1個ずつ除いても予算不足が確定する場合だけ除く。射影後のroot要求に対応するリテラルだけをcutにするため、完全一致のcutより一般化できる。探索上限でUNKNOWNの場合は除去しない。4原子の独立列挙から射影cutに一致する全補完を検査する自己テストを追加。prefilterで不可能と確定した候補は全真理値表の再評価を省き、内側SATへ渡す候補だけ従来の独立評価を行う。最終SAT witnessの独立検証は変更なし。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v16.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v16.py --case l2260 --gates 21 --jobs 3 --seconds 600 --outer-for 7=g4 --inner-for 5=cadical195 --seed-v11 sat-results/l2260-v11-exact.json --seed-v15 sat-results/l2260-v15-cegar.json --checkpoint sat-results/l2260-v16-cegar.json
+```
+
+v15とCNFおよび変数番号は同じで、fingerprint照合後に旧cutとUNSATを移行する。projected_literals/full_root_literalsは新規prefilter cutの総リテラル数と、同じroot集合の完全一致cutの場合の総リテラル数。追加の射影探索がCPU時間を増やす可能性もあるので実測比較する。v16自己テスト・本番は未実行。Lean形式化・証明書は未完成。v15以前と提出用mainは変更しない。
