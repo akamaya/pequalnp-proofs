@@ -429,3 +429,13 @@ git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && g++ -O3 -std=c++17 -Wall -Wextra -pedantic pnp_graph_partition_v3.cpp -o /tmp/pnp_graph_partition_v3 && mkdir -p sat-results && seq 0 3 | xargs -P 4 -I{} bash -c 'set -o pipefail; /tmp/pnp_graph_partition_v3 "$1" 4 | tee "sat-results/l2260-graph-v3-$1.log"' _ {}
 ```
+
+## Graph partition exact v1
+
+v3 WSL全4 shard完了: 878分割中876排除、2緩和候補。junk候補10,533,282,947件、merge通過10,999件。全分割排除ではないため暫定90/100のまま。
+
+pnp_graph_partition_exact_v1.py は全4ログの分割IDの完全性・重複・summaryを検査し、2候補の頂点分割を自動抽出する。v19 exact 6-OR CNFに成分ラベルと各成分のOR数下限を追加。ログの最初のjunk witnessだけに固定せず、その分割に属するすべてのjunk・OR配線候補を対象とする。v16 cutは不要。成分制約は実回路が満たす必要条件であり、指定した各成分内部の連結性を強制する必要はない（緩和）。両候補UNSATならv3の排除の妥当性を前提に(k,r)=(5,6)を排除できる。Lean形式化は未完。GitHub版の自己テスト・実機検証は未実行。既存checkpoint/mainは変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_exact_v1.py --self-test && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_exact_v1.py --jobs 2 --seconds 120 | tee sat-results/l2260-graph-exact-v1.log
+```
