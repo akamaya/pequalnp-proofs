@@ -401,3 +401,15 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 最長のk=5 workerに5 cubeが残っているため2周すべてTIMEOUTなら約50分（conflict chunk超過時間を除く）。既存ファイル・checkpoint・提出用mainは変更しない。Lean縮約・証明書検証は未完成。
+
+## Graph partition v1 (SAT非依存の下限)
+
+v20実測: 3040.049秒、24回全TIMEOUT、88/100分割排除のまま。v20の自己テストログは未確認。次にSATを使わずL2260のグラフ分割を解析した。
+
+[pnp_graph_partition_v1.cpp](pnp_graph_partition_v1.cpp) は11頂点の全678570分割を列挙し、全65536辺部分集合の最小頂点被覆を2種類の独立計算で照合する。ORによる成分結合とfirst-merge ANDのstar制約、成分数の等号時のjunk依存関係から、(k,r)=(7,4) を排除する。根拠・全結果は [graph_partition_v1.md](graph_partition_v1.md)。開発コンテナでコンパイルと実行に成功。k=6,r=5の候補分割は1417から69へ。これはSATの新規UNSATではなく、未形式化の縮約を前提とした数学的・有限列挙による追加排除（暫定89/100）。SAT checkpointは変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && g++ -O3 -std=c++17 -Wall -Wextra -pedantic pnp_graph_partition_v1.cpp -o /tmp/pnp_graph_partition_v1 && /tmp/pnp_graph_partition_v1
+```
+
+Leanによる成分・first-merge補題と列挙の形式検証は未実装。提出用mainは変更しない。
