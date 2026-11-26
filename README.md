@@ -179,3 +179,23 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v7のチェックポイントはfingerprintを照合したうえでUNSATのみ引継ぎ可能（CNFに制約を追加してもUNSATは維持）。証明書を検証した結果ではなく、信頼済みのローカル実験結果である。TIMEOUTは最初から探索。v1〜v7と提出用mainは変更しない。
+
+## SAT v9（2個のjunk ANDを名前付き原子に分離）
+
+v8 WSL self-test PASS、v7のk=9,10を継承し、k=1..8は全て30秒TIMEOUT。62.052秒。追加のprivate edge/semantic制約による新規UNSATは得られなかった。
+
+v9は別のCNF符号化。OR回路をn個の入力と2個のjunk ANDを原子とする集合の和集合DAGとして表現する。ORゲートごとの40行の真理値評価を省き、2+k個のANDにだけ行値を持つ。ORの配線は依然探索する。junk0の入力集合はjunk原子を含めず、junk1はjunk0のみを含められ、少なくとも片側がjunk0を含む。これにより循環を防ぐ。top ANDは末尾に置き、出力OR網は復元する。
+
+h4の各starから中心を1個選べばstarEdgesの頂点被覆となるのでh7のSAT変数は不要。内部ORは全てdirty。active OR数をm、top AND数をk、centreless数をc、Lambda数をl、被覆辺数をb、全辺数をEとすると、h6は base+k+c+m-l <= 2k+1+m+E-b、すなわち c+b-l <= k+1+E-base。L-meta-2260では c+b <= k+l。LambdaのOR到達は出力側から逆方向に厳密に符号化。復元回路はv4の全真理値表・構造検査に渡す。
+
+v9はv7/v8のCNFとは別物なのでcheckpointは引き継がない。既知のh6境界・Lambda所属の強制モデルと小規模SAT/UNSATの自己テストを追加。実機未検証、正規化と符号化のLean形式化は未完成、UNSATは実験結果のみ。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v9.py --self-test --seconds 10
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v9.py --case l2260 --gates 21 --jobs 4 --seconds 30 --checkpoint sat-results/l2260-v9.json
+```
+
+v1〜v8と提出用mainは変更しない。
