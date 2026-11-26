@@ -413,3 +413,11 @@ git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools
 ```
 
 Leanによる成分・first-merge補題と列挙の形式検証は未実装。提出用mainは変更しない。
+
+## Graph partition v2
+
+[k=6,r=5の独立列挙](graph_partition_v2.md): 等号時のブロック内OR予算s-1とjunkの真理値、first-merge残余辺の頂点被覆、緩和したclean topの集合被覆を組み合わせる。69分割、205347379組のjunk候補（重複含む）、構造下限通過後の226281個の異なる意味候補を検査し、全排除。開発コンテナでアルゴリズムの試作を実行済み。コミット版は読みやすさと診断を調整したためWSLで再実行が必要。暫定90/100分割排除（SAT 88、グラフ列挙2）。Lean形式化未完成、SAT checkpointとmainは変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && g++ -O3 -std=c++17 -Wall -Wextra -pedantic pnp_graph_partition_v1.cpp -o /tmp/pnp_graph_partition_v1 && /tmp/pnp_graph_partition_v1 && g++ -O3 -std=c++17 -Wall -Wextra -pedantic pnp_graph_partition_v2.cpp -o /tmp/pnp_graph_partition_v2 && /tmp/pnp_graph_partition_v2
+```
