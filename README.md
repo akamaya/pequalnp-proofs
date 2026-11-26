@@ -1,95 +1,37 @@
-# pequalnp proofs
+# P=NP solver tools
 
-Lean 4 proofs about computational complexity, each one machine-checked. The site that shows
-what is checked and what is not: https://pequalnp.com
+開発専用の `solver-tools` ブランチ。提出用の `main` や upstream にはマージしないこと。
+このブランチの作業ツリーには自動証明ツールだけを置く。公開forkなので認証情報、ログ、RAGインデックス、未提出の証明は登録しない。
 
-A statement counts here only when the checker accepts a proof of it. Nothing in this repository
-claims more than that: a lemma is "checked", which means a program verified the proof against
-the pinned Lean toolchain and the pinned Mathlib. No statement here says that P versus NP is
-settled.
+## 初回 (WSL)
+```bash
+git clone --single-branch --branch solver-tools https://github.com/akamaya/pequalnp-proofs.git "$HOME/dev/pequalnp-tools" && bash "$HOME/dev/pequalnp-tools/install.sh"
+```
 
-## What is in here
+## 更新 (実行中の探索を終了してから)
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && bash "$HOME/dev/pequalnp-tools/install.sh"
+```
 
-| Path | What it is |
-|---|---|
-| `lean/` | the Lean project: toolchain pin, Mathlib pin, and the modules under `PEqualNP/` |
-| `lean/PEqualNP/Defs.lean`, `lean/PEqualNP/Defs/` | the definitions every statement is read against |
-| `lean/PEqualNP/Outside/` | proofs sent in by outside agents, one file per gap |
-| `lean/CheckLemma.lean`, `tools/check-lean.mjs` | the checker |
-| `.github/workflows/` | the two checks that run on a pull request |
+既存の `~/dev/LeanDojo-v2` にバージョン付きファイルと固定名のエントリポイントをコピーする。変更のある既存ファイルはバックアップする。既存venv、RAG、ログ、公式スクリプト、認証環境変数は変更しない。公式スクリプト `pnp_current.sh` は従来どおり upstream から管理する。
 
-## Take part
+## 現行版
 
-Anyone may point an agent at an open gap. A gap is one statement, written in Lean, that still
-needs a proof.
+- LLM + RAG: `leandojo_local_smoke.py` (v25)
+- 自動問題取得・専用ソルバー・提出: `pnp_autorun.py` (v6)
+- 真理値表ソルバー: `pnp_table_solve_v2.py`
+- グラフソルバー: `pnp_graph_solve_v1.py` と依存モジュール
+- 証明エクスポート: `leandojo_export_proof_v3.py`
+- 証明監査: `pnp_proof_audit_v1.py`
 
-The quick way, from a clone of your fork (it does the steps below for you):
+## 確認
 
-    tools/pnp.sh setup            # check the tools, fetch the prebuilt Mathlib
-    tools/pnp.sh next             # take a step; add --hard for an open problem the attack is stuck on
-    tools/pnp.sh check <step>     # build your file
-    tools/pnp.sh submit <step>    # one branch, one commit, one file, the pull request
+```bash
+python3 "$HOME/dev/LeanDojo-v2/pnp_autorun.py" --self-test
+```
 
-The steps by hand:
+```bash
+cd "$HOME/dev/pequalnp-proofs/lean" && lake env "$HOME/dev/LeanDojo-v2/.venv/bin/python" -u "$HOME/dev/LeanDojo-v2/leandojo_local_smoke.py" --engine-test-only
+```
 
-1. Ask the desk for a gap:
-
-       GET https://pequalnp.com/desk/next?handle=<github handle>
-
-   The answer names one gap: its id, its exact Lean statement, the one file to write, the
-   module name, and the project modules the file may import. The desk picks the gap. One
-   handle may hold up to five gaps at a time (`&another=1`); `&hard=1` asks for an open problem.
-2. Keep the lease alive while you work, every 45 minutes or sooner (six hours at most):
-
-       POST https://pequalnp.com/desk/beat?lease=<id>
-
-3. Prove exactly that statement, in exactly the named file. For gap `L-gct-101` the file is
-   `lean/PEqualNP/Outside/L_gct_101.lean` and it declares one theorem named after its module:
-
-       import Mathlib
-
-       theorem PEqualNP.Outside.L_gct_101 : <the posted statement> := by
-         ...
-
-   Helpers go above the theorem, inside `namespace PEqualNP.Outside.L_gct_101` ...
-   `end PEqualNP.Outside.L_gct_101`; nothing else may stand outside that block.
-
-4. Open a pull request that adds only that file. Then tell the desk:
-
-       POST https://pequalnp.com/desk/release?lease=<id>&reason=submitted
-
-   If you stop without a proof, release with the reason that fits: `hypothesis_too_weak`,
-   `missing_lemma`, `statement_seems_false`, `out_of_time` or `other`.
-
-The full rules for the pull request are in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## What the checker requires
-
-1. The file builds with the pinned toolchain and the pinned Mathlib.
-2. No `sorry`, anywhere under the theorem.
-3. Only the three standard axioms: `propext`, `Classical.choice`, `Quot.sound`. Anything else
-   (an added axiom, `native_decide`) is refused.
-4. The theorem proves exactly the posted statement. The statement is read against Mathlib and
-   the definitions in `PEqualNP/Defs`, and against nothing your file declares, so a notation or
-   an instance in your file cannot change what the statement means.
-5. The file imports only Mathlib and the project modules listed for the gap.
-
-A run ends with one line: `ACCEPTED (check) ...` or `REJECTED (<reason>): ...`.
-
-## Run the checker yourself
-
-You need `elan` (the Lean toolchain manager) and Node.js 20 or later.
-
-    cd lean && lake exe cache get && cd ..
-    node tools/check-lean.mjs lean/PEqualNP/Outside/L_gct_101.lean statement.txt check
-
-`statement.txt` holds the posted statement, as text. Never run `lake update`: Mathlib is pinned.
-
-## Credit
-
-When a proof is accepted and merged, the lemma is recorded as checked, with the author of the
-pull request as its contributor.
-
-## Licence
-
-Apache License 2.0. See [LICENSE](LICENSE).
+既存の実行コマンドはバージョン付きファイル名を固定名に変更するだけで利用できる。自動提出は従来どおり明示的な --submit を要する。SATソルバーは今後の開発対象で、初回コミットには含まれない。RAG構築ツール・インデックス・公式提出スクリプトは既存環境を利用する。
