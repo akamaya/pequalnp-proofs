@@ -481,3 +481,15 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_pa
 ```
 
 候補15188分割。100件ごとに進捗、未解決分割は同一コマンドで再探索。v1の実行時間増加が保存処理によるものかは未計測。
+
+### Sweep v2 WSL result: (5,7)
+
+15188分割中15136 UNSAT、52 TIMEOUT、SAT 0、3349.976秒（8並列、5秒/cube、cadical195）。全52 TIMEOUTはb=5、slack=1。b=4の8839分割とb=6の69分割は全排除。暫定93/100のまま。
+
+既存SQLite checkpointを使い、残存52分割のみ60秒/cubeで再探索する。コードの変更なし。
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --top-count 5 --or-count 7 --jobs 8 --seconds 60 --solver cadical195
+```
+
+Lean形式検証・UNSAT証明書検証は未完。
