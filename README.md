@@ -493,3 +493,13 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_pa
 ```
 
 Lean形式検証・UNSAT証明書検証は未完。
+
+### Sweep v2 WSL result: (5,7) retry
+
+60秒/cube、8並列、cadical195、残存52分割を全UNSAT。再探索47.462秒（列挙7.716秒を含む）。15188/15188 UNSAT、残存0。暫定94/100（従来SAT 88、組合せ併用6）、残り6。Lean形式化とUNSAT証明書検証は未完。
+
+次は(k,r)=(7,6)、候補31692分割。既存v2を変更せず、5秒/8並列で初回探索する。
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --top-count 7 --or-count 6 --jobs 8 --seconds 5 --solver cadical195
+```
