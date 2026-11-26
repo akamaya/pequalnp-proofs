@@ -271,3 +271,19 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 同じseedとcheckpointで再実行するとcoreを引継ぐ。v1〜v12、提出用mainは変更しない。
+
+## SAT v14（v13の同一入力制約修正・checkpoint移行）
+
+v13 WSL自己テストは失敗。AND入力のsource順序制約の解除時に、同じsourceを2回読むことの禁止まで解除していた。報告された3ゲートのSAT witnessは同一入力ANDを2個含む非最小回路だった。v14では順序のみ解除し、各ANDの同一source禁止を復元、報告モデルの回帰テストを追加。元の期待値は変更しない。
+
+v13本番: k=4 は外側緩和だけでUNSAT (26.953秒、candidate=0、cut=0)、k=5は3 cut、k=6は9 cut、k=7,8は初回探索中TIMEOUT。全100分割中暫定85排除、15残り。v14の外側CNFと変数番号はv13と同一、内側は同一source禁止の追加だけなので、v13のUNSAT coreは引き続き有効。fingerprintを照合してUNSAT/TIMEOUTとcutを移行する。旧SAT/ERRORは移行しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v14.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v14.py --case l2260 --gates 21 --jobs 4 --seconds 180 --seed-v11 sat-results/l2260-v11-exact.json --seed-v13 sat-results/l2260-v13-cegar.json --checkpoint sat-results/l2260-v14-cegar.json
+```
+
+v14は実機未検証。v13の元ファイルおよびv11/v13のcheckpointは変更しない。結果は実験用で、Leanによる形式的証明・証明書検証は未完成。
