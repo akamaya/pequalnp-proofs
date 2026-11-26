@@ -439,3 +439,17 @@ pnp_graph_partition_exact_v1.py は全4ログの分割IDの完全性・重複・
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_exact_v1.py --self-test && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_exact_v1.py --jobs 2 --seconds 120 | tee sat-results/l2260-graph-exact-v1.log
 ```
+
+## Graph partition sweep v1
+
+WSL graph exact v1 self-test PASS、(5,6) のv3残存139/420を0.325/0.259秒でUNSAT、全体0.375秒。暫定91/100（従来SAT 88、組合せ併用3）、残り9。Lean形式化未完。
+
+次は(k,r)=(7,5) のv1候補1272分割を直接exact SATで検査。C++でjunk全候補を事前列挙せず、Pythonによる独立した頂点被覆・分割列挙でv1の候補数を照合し、既に実機自己テストを通過した成分制約を再利用する。5秒/8並列、分割ごとにcheckpoint保存。TIMEOUTだけ再試行できる。新規scriptは実機未検証。既存checkpoint/mainは変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v1.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v1.py --top-count 7 --or-count 5 --jobs 8 --seconds 5 --solver cadical195
+```
