@@ -235,3 +235,21 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v11実機未検証。全分割UNSATでもLeanでの正規化・符号化・証明書の検証が必要。v1〜v10、提出用main、実行中LLMは変更しない。
+
+## SAT v12（OR配線を探索しないsupport-only緩和）
+
+v11 WSL self-test PASS。CaDiCaL/5秒/4並列: 45分割中18 UNSAT、27 TIMEOUT (39.465秒)。Glucose4/10秒/4並列: 残り27分割中1 UNSAT (k=7,r=3)、26 TIMEOUT (71.52秒)。全100分割では継承55+新規19=74 UNSAT。
+
+v12は各ANDの2入力を13ビットのsupport集合で直接表現し、OR DAGの接続を探索しない。各集合の大きさはr+1以下、異なる非単元supportの個数はOR予算r以下。Lambdaになり得ない必須ORの個数を数え、h6のLambda数の上限をさらに絞る。最小性の必要条件としてoperand supportの非包含とtopの固有辺を要求。全入力と構造制約を独立評価する。RELAXED_SATは実際のOR DAGが存在することを意味せず、反例ではない。UNSATの場合のみ、未形式化の縮約を前提に対応する回路候補を排除できる。
+
+v11のfingerprintを照合してUNSATを引継ぎ、未解決の各kについて最大OR予算で緩和を解く。最大予算でUNSATならそれ以下の予算も排除できる。自己テストは既知のsupport候補の受理、予算不足・緩和h6違反の拒否、3bit比較器の全数検査。v12は実機未検証。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v12.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solve_v12.py --case l2260 --gates 21 --jobs 4 --seconds 20 --seed-v11 sat-results/l2260-v11-exact.json --checkpoint sat-results/l2260-v12-relax.json
+```
+
+v12のcheckpointを再開する際は同じseed-v11を指定し、seedのUNSAT集合が変化した場合は別checkpointを使用。Lean形式化・UNSAT証明書は未完成。v1〜v11と提出用mainは変更しない。
