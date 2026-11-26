@@ -199,3 +199,7 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_sat_solv
 ```
 
 v1〜v8と提出用mainは変更しない。
+
+### v9 修正: 未使用ゲート (2026-11-26)
+
+初回WSL自己テストでは、出力に到達しない2個のjunk ANDを持つ3ゲート回路がSATとなり、期待したUNSATと一致しなかった。出力関数の独立検証は正常だったが、最小回路に必要な全実ゲートの使用条件が符号化から抜けていた。修正版では両junkおよび全active ORに直接のreaderを要求し、復元回路の出力coneも独立検査する。報告された3ゲート回路を固定した回帰テストを追加。元のUNSAT期待値は変更しない。修正版はWSL未検証。旧v9のcheckpointは互換性なし。
