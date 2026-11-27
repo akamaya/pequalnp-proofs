@@ -3652,7 +3652,7 @@ theorem comparable_and_value {n : Nat} (C : Circuit)
   | false => rfl
   | true =>
       have hb := hi ha
-      rw [hb]
+      simp [hb]
 
 theorem comparable_or_value {n : Nat} (C : Circuit)
     (hAO : PEqualNP.TopForm.IsAO2 n C) (j a b : Nat)
@@ -3669,7 +3669,7 @@ theorem comparable_or_value {n : Nat} (C : Circuit)
   | false => rfl
   | true =>
       have hb := hi ha
-      rw [hb]
+      simp [hb]
 
 /-- Remove wire cut, redirect all references to it to an earlier
 wire rep, and shift every later physical index down by one. -/
