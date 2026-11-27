@@ -7883,3 +7883,273 @@ theorem residual_grouped_cover {n : Nat} (G : SimpleGraph (Fin n))
     rwa [heq] at hmem
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: projected vertex cover
+
+The recurrence chooses the first remaining edge, deletes every edge
+incident to either endpoint, and takes the cheaper branch. This is
+the list version of the bit-mask recurrence in fast_v4.
+-/
+namespace L2260FirstMerge
+
+def CoversEdges {α : Type} (S : Finset α) (E : List (α × α)) : Prop :=
+  ∀ e ∈ E, e.1 ∈ S ∨ e.2 ∈ S
+
+def withoutIncident {α : Type} [DecidableEq α]
+    (E : List (α × α)) (a : α) : List (α × α) :=
+  E.filter fun e => decide (e.1 ≠ a ∧ e.2 ≠ a)
+
+def coverCost {α : Type} [DecidableEq α] : Nat → List (α × α) → Nat
+  | 0, _ => 0
+  | _+1, [] => 0
+  | f+1, e :: E =>
+      1 + min (coverCost f (withoutIncident E e.1))
+        (coverCost f (withoutIncident E e.2))
+
+theorem without_incident_cover_erase {α : Type} [DecidableEq α]
+    (S : Finset α) (E : List (α × α)) (a : α)
+    (h : CoversEdges S E) : CoversEdges (S.erase a) (withoutIncident E a) := by
+  intro e he
+  have hm := List.mem_filter.mp he
+  have hn : e.1 ≠ a ∧ e.2 ≠ a := of_decide_eq_true hm.2
+  rcases h e hm.1 with h | h
+  · exact Or.inl (Finset.mem_erase.mpr ⟨hn.1,h⟩)
+  · exact Or.inr (Finset.mem_erase.mpr ⟨hn.2,h⟩)
+
+theorem cover_cost_lower {α : Type} [DecidableEq α] (f : Nat)
+    (E : List (α × α)) (S : Finset α) (h : CoversEdges S E) :
+    coverCost f E ≤ S.card := by
+  induction f generalizing E S with
+  | zero => simp [coverCost]
+  | succ f ih =>
+      cases E with
+      | nil => simp [coverCost]
+      | cons e E =>
+          have ht : CoversEdges S E := fun x hx => h x (List.mem_cons_of_mem _ hx)
+          have he := h e (by simp)
+          rw [coverCost]
+          rcases he with ha | hb
+          · have hc := ih _ _ (without_incident_cover_erase S E e.1 ht)
+            have hm := min_le_left (coverCost f (withoutIncident E e.1))
+              (coverCost f (withoutIncident E e.2))
+            have hs := Finset.card_erase_of_mem ha
+            have hp : 0 < S.card := Finset.card_pos.mpr ⟨e.1,ha⟩
+            omega
+          · have hc := ih _ _ (without_incident_cover_erase S E e.2 ht)
+            have hm := min_le_right (coverCost f (withoutIncident E e.1))
+              (coverCost f (withoutIncident E e.2))
+            have hs := Finset.card_erase_of_mem hb
+            have hp : 0 < S.card := Finset.card_pos.mpr ⟨e.2,hb⟩
+            omega
+
+theorem cover_insert_incident {α : Type} [DecidableEq α]
+    (S : Finset α) (E : List (α × α)) (a : α)
+    (h : CoversEdges S (withoutIncident E a)) :
+    CoversEdges (insert a S) E := by
+  intro e he
+  by_cases h1 : e.1 = a
+  · exact Or.inl (by simp [h1])
+  by_cases h2 : e.2 = a
+  · exact Or.inr (by simp [h2])
+  have hm : e ∈ withoutIncident E a := by
+    apply List.mem_filter.mpr
+    exact ⟨he,decide_eq_true ⟨h1,h2⟩⟩
+  rcases h e hm with h | h
+  · exact Or.inl (Finset.mem_insert_of_mem h)
+  · exact Or.inr (Finset.mem_insert_of_mem h)
+
+theorem cover_cost_attained {α : Type} [DecidableEq α] (f : Nat)
+    (E : List (α × α)) (hf : E.length ≤ f) :
+    ∃ S : Finset α, CoversEdges S E ∧ S.card ≤ coverCost f E := by
+  induction f generalizing E with
+  | zero =>
+      cases E with
+      | nil => exact ⟨∅,by simp [CoversEdges],by simp [coverCost]⟩
+      | cons e E => simp at hf
+  | succ f ih =>
+      cases E with
+      | nil => exact ⟨∅,by simp [CoversEdges],by simp [coverCost]⟩
+      | cons e E =>
+          have hl : E.length ≤ f := by simpa using hf
+          have h1 : (withoutIncident E e.1).length ≤ f :=
+            (List.length_filter_le _ _).trans hl
+          have h2 : (withoutIncident E e.2).length ≤ f :=
+            (List.length_filter_le _ _).trans hl
+          obtain ⟨A,hA,hAc⟩ := ih _ h1
+          obtain ⟨B,hB,hBc⟩ := ih _ h2
+          by_cases h : coverCost f (withoutIncident E e.1) ≤
+              coverCost f (withoutIncident E e.2)
+          · refine ⟨insert e.1 A,?_,?_⟩
+            · intro x hx
+              rcases List.mem_cons.mp hx with rfl | hx
+              · exact Or.inl (Finset.mem_insert_self _ _)
+              · exact cover_insert_incident A E e.1 hA x hx
+            · rw [coverCost,min_eq_left h]
+              have hh := Finset.card_insert_le e.1 A
+              omega
+          · refine ⟨insert e.2 B,?_,?_⟩
+            · intro x hx
+              rcases List.mem_cons.mp hx with rfl | hx
+              · exact Or.inr (Finset.mem_insert_self _ _)
+              · exact cover_insert_incident B E e.2 hB x hx
+            · rw [coverCost,min_eq_right (by omega)]
+              have hh := Finset.card_insert_le e.2 B
+              omega
+
+def exactCoverCost {α : Type} [DecidableEq α] (E : List (α × α)) : Nat :=
+  coverCost E.length E
+
+theorem exact_cover_cost_iff {α : Type} [DecidableEq α]
+    (E : List (α × α)) (k : Nat) :
+    exactCoverCost E ≤ k ↔ ∃ S : Finset α, CoversEdges S E ∧ S.card ≤ k := by
+  constructor
+  · intro h
+    obtain ⟨S,hs,hc⟩ := cover_cost_attained E.length E (Nat.le_refl _)
+    exact ⟨S,hs,hc.trans h⟩
+  · rintro ⟨S,hs,hc⟩
+    exact (cover_cost_lower E.length E S hs).trans hc
+
+def groupCenters {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (g : γ) : Finset α :=
+  (S.filter fun p => p.1 = g).image Prod.snd
+
+theorem mem_group_centers_iff {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (g : γ) (a : α) :
+    a ∈ groupCenters S g ↔ (g,a) ∈ S := by
+  constructor
+  · intro h
+    obtain ⟨p,hp,he⟩ := Finset.mem_image.mp h
+    have hm := Finset.mem_filter.mp hp
+    have hp' : p = (g,a) := Prod.ext hm.2 he
+    rwa [← hp']
+  · intro h
+    exact Finset.mem_image.mpr ⟨(g,a),Finset.mem_filter.mpr ⟨h,rfl⟩,rfl⟩
+
+theorem group_centers_card {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (g : γ) :
+    (groupCenters S g).card = (S.filter fun p => p.1 = g).card := by
+  unfold groupCenters
+  apply Finset.card_image_of_injOn
+  intro a ha b hb he
+  exact Prod.ext ((Finset.mem_filter.mp ha).2.trans
+    (Finset.mem_filter.mp hb).2.symm) he
+
+/-- No centre is charged to more than one group. -/
+theorem grouped_center_sum_le {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (T : Finset γ) (S : Finset (γ × α)) :
+    (∑ g ∈ T, (groupCenters S g).card) ≤ S.card := by
+  induction T using Finset.induction_on generalizing S with
+  | empty => simp
+  | @insert g T hg ih =>
+      let A := S.filter fun p => p.1 = g
+      let B := S \ A
+      have hA : A ⊆ S := Finset.filter_subset _ _
+      have hsplit := card_partition_subset S A hA
+      have he (h : γ) (hh : h ∈ T) : groupCenters S h = groupCenters B h := by
+        have hne : h ≠ g := fun he => hg (he ▸ hh)
+        ext a
+        rw [mem_group_centers_iff,mem_group_centers_iff]
+        constructor
+        · intro hm
+          exact Finset.mem_sdiff.mpr ⟨hm,by
+            intro ha
+            exact hne (Finset.mem_filter.mp ha).2⟩
+        · intro hm
+          exact (Finset.mem_sdiff.mp hm).1
+      have hsum : (∑ h ∈ T, (groupCenters S h).card) =
+          ∑ h ∈ T, (groupCenters B h).card := by
+        apply Finset.sum_congr rfl
+        intro h hh
+        rw [he h hh]
+      rw [Finset.sum_insert hg,hsum,group_centers_card]
+      have hi := ih B
+      change A.card + (∑ h ∈ T, (groupCenters B h).card) ≤ S.card
+      change B.card + A.card = S.card at hsplit
+      omega
+
+/-- Each threshold is set from a known grouped cover, not from an
+untrusted solver result. This satisfies the monotone flag clauses. -/
+def coverThreshold {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (g : γ) (t : Nat) : Bool :=
+  decide (t ≤ (groupCenters S g).card)
+
+theorem cover_threshold_mono {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (g : γ) (t u : Nat) (ht : t ≤ u)
+    (h : coverThreshold S g u = true) : coverThreshold S g t = true := by
+  unfold coverThreshold at h ⊢
+  exact decide_eq_true (ht.trans (of_decide_eq_true h))
+
+theorem cover_threshold_obstruction {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (g : γ) (E : List (α × α)) (t : Nat)
+    (ht : t ≤ exactCoverCost E)
+    (hcover : CoversEdges (groupCenters S g) E) :
+    coverThreshold S g t = true := by
+  unfold coverThreshold
+  exact decide_eq_true (ht.trans (cover_cost_lower E.length E _ hcover))
+
+/-- The positive threshold indices need not be contiguous; this also
+covers the implementation which allocates flags only for observed t. -/
+theorem cover_threshold_count {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (g : γ) (T : Finset Nat)
+    (hp : ∀ t ∈ T, 0 < t) :
+    (T.filter fun t => coverThreshold S g t = true).card ≤
+      (groupCenters S g).card := by
+  let F := T.filter fun t => coverThreshold S g t = true
+  have hs : F.image (fun t => t-1) ⊆ Finset.range (groupCenters S g).card := by
+    intro z hz
+    obtain ⟨t,ht,he⟩ := Finset.mem_image.mp hz
+    have hm := Finset.mem_filter.mp ht
+    have hpos := hp t hm.1
+    have hle : t ≤ (groupCenters S g).card := of_decide_eq_true hm.2
+    apply Finset.mem_range.mpr
+    omega
+  have he : (F.image (fun t => t-1)).card = F.card := by
+    apply Finset.card_image_of_injOn
+    intro a ha b hb he
+    have ha' := hp a (Finset.mem_filter.mp ha).1
+    have hb' := hp b (Finset.mem_filter.mp hb).1
+    omega
+  have h := Finset.card_le_card hs
+  rw [he,Finset.card_range] at h
+  exact h
+
+theorem projected_threshold_budget {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (T : Finset γ) (levels : γ → Finset Nat)
+    (hp : ∀ g ∈ T, ∀ t ∈ levels g, 0 < t) :
+    (∑ g ∈ T, ((levels g).filter fun t => coverThreshold S g t = true).card) ≤
+      S.card := by
+  apply le_trans _ (grouped_center_sum_le T S)
+  apply Finset.sum_le_sum
+  intro g hg
+  exact cover_threshold_count S g (levels g) (hp g hg)
+
+/-- Any collection of distinct groups with total certified obstruction
+cost greater than k must have a hit in at least one obstruction.
+This justifies every direct projected-cover clause, independently of
+the number (512 or otherwise) actually emitted by the search engine. -/
+theorem projected_direct_clause {γ α : Type} [DecidableEq γ] [DecidableEq α]
+    (S : Finset (γ × α)) (T : Finset γ) (E : γ → List (α × α))
+    (hit : α × α → Prop) (cost : γ → Nat) (k : Nat)
+    (hS : S.card ≤ k)
+    (hcost : ∀ g ∈ T, cost g ≤ exactCoverCost (E g))
+    (hcover : ∀ g ∈ T, ∀ e ∈ E g, ¬ hit e →
+      (g,e.1) ∈ S ∨ (g,e.2) ∈ S)
+    (hgt : k < ∑ g ∈ T, cost g) :
+    ∃ g ∈ T, ∃ e ∈ E g, hit e := by
+  classical
+  by_contra hn
+  have hc (g : γ) (hg : g ∈ T) : CoversEdges (groupCenters S g) (E g) := by
+    intro e he
+    have hnot : ¬ hit e := fun hh => hn ⟨g,hg,e,he,hh⟩
+    rcases hcover g hg e he hnot with h | h
+    · exact Or.inl ((mem_group_centers_iff S g e.1).mpr h)
+    · exact Or.inr ((mem_group_centers_iff S g e.2).mpr h)
+  have hsum : (∑ g ∈ T, cost g) ≤ ∑ g ∈ T, (groupCenters S g).card := by
+    apply Finset.sum_le_sum
+    intro g hg
+    exact (hcost g hg).trans (cover_cost_lower (E g).length (E g) _ (hc g hg))
+  have hbound := grouped_center_sum_le T S
+  omega
+
+end L2260FirstMerge
