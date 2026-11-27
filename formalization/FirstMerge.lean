@@ -4688,3 +4688,234 @@ theorem no_private_edge_cover {n : Nat} (G : SimpleGraph (Fin n))
   · exact ⟨j,Finset.mem_erase.mpr ⟨hji,hj⟩,ht⟩
 
 end L2260FirstMerge
+
+
+/-! ## Counting the clean output OR network
+
+An arbitrary shared clean OR DAG covering k terminal ANDs costs at
+least k-1 physical ORs. The argument counts rank merges, not tree
+occurrences, so it does not assume fanout one.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def cleanOrPrefix {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) (j : Nat) : Nat :=
+  ((Finset.range j).filter fun i =>
+    (gateAt C i).op = GateOp.or ∧ PEqualNP.TopForm.BelowF G C i ∧
+      symbolicSupport n C (n+i) ⊆ V).card
+
+private theorem clean_or_prefix_succ {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) (j : Nat) :
+    cleanOrPrefix G C V (j+1) = cleanOrPrefix G C V j +
+      (if (gateAt C j).op = GateOp.or ∧ PEqualNP.TopForm.BelowF G C j ∧
+          symbolicSupport n C (n+j) ⊆ V then 1 else 0) := by
+  classical
+  let P : Nat → Prop := fun i =>
+    (gateAt C i).op = GateOp.or ∧ PEqualNP.TopForm.BelowF G C i ∧
+      symbolicSupport n C (n+i) ⊆ V
+  change ((Finset.range (j+1)).filter P).card =
+    ((Finset.range j).filter P).card + (if P j then 1 else 0)
+  rw [Finset.range_add_one]
+  by_cases h : P j
+  · have he : (insert j (Finset.range j)).filter P =
+        insert j ((Finset.range j).filter P) := by
+      ext i
+      simp only [Finset.mem_filter,Finset.mem_insert]
+      constructor
+      · rintro ⟨hi,hp⟩
+        rcases hi with hi | hi
+        · exact Or.inl hi
+        · exact Or.inr ⟨hi,hp⟩
+      · rintro (hi | ⟨hi,hp⟩)
+        · subst i
+          exact ⟨Or.inl rfl,h⟩
+        · exact ⟨Or.inr hi,hp⟩
+    rw [he,Finset.card_insert_of_notMem,if_pos h]
+    intro hm
+    exact Finset.notMem_range_self ((Finset.mem_filter.mp hm).1)
+  · have he : (insert j (Finset.range j)).filter P =
+        (Finset.range j).filter P := by
+      ext i
+      simp only [Finset.mem_filter,Finset.mem_insert]
+      constructor
+      · rintro ⟨hi,hp⟩
+        rcases hi with hi | hi
+        · subst i
+          exact False.elim (h hp)
+        · exact ⟨hi,hp⟩
+      · rintro ⟨hi,hp⟩
+        exact ⟨Or.inr hi,hp⟩
+    rw [he,if_neg h,Nat.add_zero]
+
+theorem clean_or_prefix_labels {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (V : Finset Nat) (hV : V ⊆ topWires G C)
+    (j : Nat) (hj : j ≤ C.gates.length) :
+    ∃ l : Nat → Nat,
+      (∀ w < n+j, symbolicSupport n C w ⊆ V →
+        SupportLocal l (symbolicSupport n C w)) ∧
+      V.card ≤ atomRank V l + cleanOrPrefix G C V j := by
+  classical
+  induction j with
+  | zero =>
+      refine ⟨id,?_,?_⟩
+      · intro w hw _
+        rw [symbolic_atom n C w (by intro h; have hh := h.1; omega)]
+        exact local_singleton id w
+      · simp [atomRank,cleanOrPrefix]
+  | succ j ih =>
+      have hj' : j < C.gates.length := by omega
+      obtain ⟨l,hl,hbudget⟩ := ih (by omega)
+      have hcost : cleanOrPrefix G C V j ≤ cleanOrPrefix G C V (j+1) := by
+        rw [clean_or_prefix_succ]
+        omega
+      by_cases he : Expandable n C (n+j)
+      · by_cases hs : symbolicSupport n C (n+j) ⊆ V
+        · let a := PEqualNP.TopForm.opnd C j 0
+          let b := PEqualNP.TopForm.opnd C j 1
+          have hidx : n+j-n = j := by omega
+          have ha : a < n+j := by simpa [a,hidx] using he.2.2.2.1
+          have hb : b < n+j := by simpa [b,hidx] using he.2.2.2.2
+          have hu : symbolicSupport n C (n+j) =
+              symbolicSupport n C a ∪ symbolicSupport n C b := by
+            simpa [a,b,hidx] using symbolic_expand n C (n+j) he
+          have hA : symbolicSupport n C a ⊆ V := by
+            intro x hx
+            apply hs
+            rw [hu]
+            exact Finset.mem_union.mpr (Or.inl hx)
+          have hB : symbolicSupport n C b ⊆ V := by
+            intro x hx
+            apply hs
+            rw [hu]
+            exact Finset.mem_union.mpr (Or.inr hx)
+          obtain ⟨l',hp,hu',hr⟩ :=
+            atom_rank_union V l (symbolicSupport n C a) (symbolicSupport n C b)
+              (hl a ha hA) (hl b hb hB)
+          have hop : (gateAt C j).op = GateOp.or := by
+            simpa [hidx] using he.2.2.1
+          have hU : symbolicSupport n C (n+j) ⊆ topWires G C :=
+            fun _ hx => hV (hs hx)
+          have hd := support_tops_implies_clean G C hAO j hU
+          have hcharge : (gateAt C j).op = GateOp.or ∧
+              PEqualNP.TopForm.BelowF G C j ∧
+              symbolicSupport n C (n+j) ⊆ V :=
+            ⟨hop,hd,hs⟩
+          refine ⟨l',?_,?_⟩
+          · intro w hw hwV
+            by_cases hw' : w < n+j
+            · exact preserves_local l l' hp _ (hl w hw' hwV)
+            · have hwe : w = n+j := by omega
+              subst w
+              rw [hu]
+              exact hu'
+          · rw [clean_or_prefix_succ,if_pos hcharge]
+            omega
+        · refine ⟨l,?_,by omega⟩
+          intro w hw hwV
+          by_cases hw' : w < n+j
+          · exact hl w hw' hwV
+          · have hwe : w = n+j := by omega
+            subst w
+            exact False.elim (hs hwV)
+      · refine ⟨l,?_,by omega⟩
+        intro w hw hwV
+        by_cases hw' : w < n+j
+        · exact hl w hw' hwV
+        · have hwe : w = n+j := by omega
+          subst w
+          rw [symbolic_atom n C (n+j) he]
+          exact local_singleton l _
+
+
+theorem clean_output_or_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (u v : Fin n) (he : G.Adj u v) :
+    (PEqualNP.TopForm.tops G C).card ≤ 1 + (PEqualNP.TopForm.orT G C).card := by
+  classical
+  let V := topWires G C
+  have hs : symbolicSupport n C C.output = V :=
+    output_support_eq_top_wires G C hmin htop u v he
+  obtain ⟨l,hl,hb⟩ := clean_or_prefix_labels G C hmin.1 V
+    (fun _ h => h) C.gates.length (Nat.le_refl _)
+  have hloc := hl C.output (actual_output_bound G C hmin u v he)
+    (show symbolicSupport n C C.output ⊆ V from by rw [hs])
+  rw [hs] at hloc
+  obtain ⟨a,ha⟩ := symbolic_nonempty n C C.output
+  rw [hs] at ha
+  have him : V.image l ⊆ ({l a} : Finset Nat) := by
+    intro z hz
+    obtain ⟨x,hx,heq⟩ := Finset.mem_image.mp hz
+    exact Finset.mem_singleton.mpr (heq.symm.trans (hloc x hx a ha))
+  have hr : atomRank V l ≤ 1 :=
+    (Finset.card_le_card him).trans (by simp)
+  have hc : cleanOrPrefix G C V C.gates.length ≤
+      (PEqualNP.TopForm.orT G C).card := by
+    unfold cleanOrPrefix
+    apply Finset.card_le_card
+    intro i hi
+    have hm := Finset.mem_filter.mp hi
+    exact Finset.mem_filter.mpr ⟨hm.1,hm.2.1,hm.2.2.1⟩
+  have hcard : V.card = (PEqualNP.TopForm.tops G C).card :=
+    top_wires_card G C
+  omega
+
+theorem top_wires_disjoint_atoms {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    Disjoint (topWires G C) (atomUniverse G C) := by
+  apply Finset.disjoint_left.mpr
+  intro a ha hb
+  obtain ⟨i,hi,he⟩ := Finset.mem_image.mp ha
+  rw [← he] at hb
+  exact top_wire_not_atom G C i hi hb
+
+/-- No clean gate is read by an AND or a dirty OR. This is the
+separation needed to rebuild only the output network. -/
+theorem clean_gate_reader_clean_or {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (i j : Nat) (hi : i < C.gates.length)
+    (hc : PEqualNP.TopForm.BelowF G C i)
+    (hj : j < C.gates.length) (hr : n+i ∈ (gateAt C j).inputs) :
+    j ∈ PEqualNP.TopForm.orT G C := by
+  have hs := clean_support_subset_tops G C hmin.1 i hi hc
+  obtain ⟨a,ha⟩ := symbolic_nonempty n C (n+i)
+  have hna : a ∉ atomUniverse G C := by
+    intro ham
+    exact (Finset.disjoint_left.mp (top_wires_disjoint_atoms G C)) (hs ha) ham
+  rcases hmin.1.1 _ (actual_gate_mem C j hj) with hand | hor
+  · exact False.elim (hna (and_operand_support_subset G C hmin.1 htop
+      j hj hand (n+i) hr ha))
+  · have hclean : PEqualNP.TopForm.BelowF G C j := by
+      by_contra hd
+      have hm : j ∈ PEqualNP.TopForm.orN G C :=
+        Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hor,hd⟩
+      have hjin := dirty_or_internal G C hmin htop j hm
+      exact hna ((internal_or_mem G C j hjin).2.2
+        (or_reader_support_subset C hmin.1 j (n+i) hj hor hr ha))
+    exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hor,hclean⟩
+
+/-- Equivalently, every operand of a gate that is not a clean OR
+is outside the clean OR suffix to be removed. -/
+theorem nonclean_or_no_clean_or_input {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j < C.gates.length)
+    (hn : j ∉ PEqualNP.TopForm.orT G C) :
+    ∀ i ∈ PEqualNP.TopForm.orT G C, n+i ∉ (gateAt C j).inputs := by
+  intro i hi hr
+  have hm := Finset.mem_filter.mp hi
+  exact hn (clean_gate_reader_clean_or G C hmin htop i j
+    (Finset.mem_range.mp hm.1) hm.2.2 hj hr)
+
+end L2260FirstMerge
