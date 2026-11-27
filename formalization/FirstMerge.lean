@@ -7078,8 +7078,12 @@ theorem padded_or_slot_active {n : Nat} (G : SimpleGraph (Fin n))
     (hm : (internalOrGates G C).card ≤ m) (hh : h ∈ internalOrGates G C) :
     activeSlot m (internalOrGates G C).card (paddedOrSlot G C m h) = true := by
   have hb := index_rank_lt_card _ h hh
-  simp only [activeSlot,paddedOrSlot,decide_eq_true_eq]
-  omega
+  have hslot : m-(internalOrGates G C).card ≤ paddedOrSlot G C m h ∧
+      paddedOrSlot G C m h < m := by
+    unfold paddedOrSlot
+    omega
+  unfold activeSlot
+  exact decide_eq_true hslot
 
 theorem padded_or_slot_strict {n : Nat} (G : SimpleGraph (Fin n))
     [DecidableRel G.Adj] (C : Circuit) (m h j : Nat)
