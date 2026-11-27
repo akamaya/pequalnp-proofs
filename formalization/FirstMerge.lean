@@ -8208,8 +8208,11 @@ theorem first_representative_eq_iff (U : Finset Nat) (l : Nat → Nat)
     rw [he] at h1
     exact h1.symm.trans h2
   · intro he
-    unfold firstRepresentative
-    rw [he]
+    obtain ⟨hma,hea⟩ := first_representative_mem U l a ha
+    obtain ⟨hmb,heb⟩ := first_representative_mem U l b hb
+    apply Nat.le_antisymm
+    · exact first_representative_le U l a _ hmb (heb.trans he.symm)
+    · exact first_representative_le U l b _ hma (hea.trans he)
 
 theorem first_representative_idem (U : Finset Nat) (l : Nat → Nat)
     (a : Nat) (ha : a ∈ U) :
@@ -8269,7 +8272,8 @@ theorem same_partition_rank (U V : Finset Nat) (l l' : Nat → Nat)
 theorem canonical_atom_rank (U V : Finset Nat) (l : Nat → Nat)
     (hV : V ⊆ U) :
     atomRank V (canonicalAtomLabel U l) = atomRank V l :=
-  same_partition_rank U V _ _ hV (canonical_atom_label_eq_iff U l)
+  same_partition_rank U V _ _ hV
+    (fun a ha b hb => canonical_atom_label_eq_iff U l a b ha hb)
 
 theorem canonical_aux_invariant {n : Nat} (G : SimpleGraph (Fin n))
     [DecidableRel G.Adj] (C : Circuit) (j : Nat) (l : Nat → Nat)
@@ -8368,6 +8372,12 @@ theorem canonical_raw_prefix_range (U : Finset Nat) (l : Nat → Nat)
   rw [h1,index_rank_image_range,Finset.card_range] at hc
   rw [h1,index_rank_image_range,hc]
 
+theorem partition_range_step (i : Nat) :
+    Finset.range (i+1) = insert i (Finset.range i) := by
+  ext x
+  simp only [Finset.mem_range,Finset.mem_insert]
+  omega
+
 /-- The next raw label is either an existing label or the next new
 label, exactly the range(b+1) loop in the Python partition walk. -/
 theorem canonical_next_label (U : Finset Nat) (l : Nat → Nat)
@@ -8381,7 +8391,7 @@ theorem canonical_next_label (U : Finset Nat) (l : Nat → Nat)
   have hlt := Finset.mem_range.mp hm
   have hb : ((Finset.range (i+1)).image l).card ≤
       ((Finset.range i).image l).card+1 := by
-    rw [Finset.range_succ,Finset.image_insert]
+    rw [partition_range_step,Finset.image_insert]
     exact Finset.card_insert_le _ _
   omega
 
@@ -8397,8 +8407,10 @@ theorem canonical_prefix_pruning_safe (l : Nat → Nat)
     | succ d ih =>
         have hstep : ((Finset.range (i+d+1)).image l).card ≤
             ((Finset.range (i+d)).image l).card+1 := by
-          rw [Finset.range_succ,Finset.image_insert]
+          rw [partition_range_step,Finset.image_insert]
           exact Finset.card_insert_le _ _
+        change ((Finset.range (i+d+1)).image l).card ≤
+          ((Finset.range i).image l).card+(d+1)
         omega
   have h' := h (n-i)
   have he : i+(n-i) = n := by omega
