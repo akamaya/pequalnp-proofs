@@ -4495,3 +4495,196 @@ theorem graph_exposure {n : Nat} (G : SimpleGraph (Fin n))
   contradiction
 
 end L2260FirstMerge
+
+
+/-! ## Output OR closure and edge-wise redundancy
+
+Every clean AND occurs in the output OR closure of a least top-form
+circuit. Edge coverage of a subset of the tops suffices for coverage
+on all inputs. These results are prerequisites for the private-edge
+minimality cut; they do not yet assert that the subset can be realized
+with fewer gates.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def topWires {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset Nat :=
+  (PEqualNP.TopForm.tops G C).image (fun j => n+j)
+
+theorem top_wire_not_atom {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (i : Nat)
+    (hi : i ∈ PEqualNP.TopForm.tops G C) :
+    n+i ∉ atomUniverse G C := by
+  intro ha
+  rcases Finset.mem_union.mp ha with hr | hj
+  · have h := Finset.mem_range.mp hr
+    omega
+  · obtain ⟨j,hj,he⟩ := Finset.mem_image.mp hj
+    change n+j = n+i at he
+    have hji : j = i := by omega
+    subst j
+    have hd : IsDirtyAnd n G C i := (Finset.mem_filter.mp hj).2
+    obtain ⟨_,_,x,hx,hf⟩ := hd
+    have hc := (Finset.mem_filter.mp hi).2.2 x hx
+    rw [hf] at hc
+    contradiction
+
+theorem and_wire_symbolic_singleton {n : Nat} (C : Circuit) (i : Nat)
+    (hop : (gateAt C i).op = GateOp.and) :
+    symbolicSupport n C (n+i) = {n+i} := by
+  apply symbolic_atom
+  intro h
+  have he : n+i-n = i := by omega
+  have ho := h.2.2.1
+  rw [he,hop] at ho
+  contradiction
+
+/-- A top atom appearing at any real gate must appear in the output:
+follow a reader and rule out AND readers using TopForm. -/
+theorem top_leaf_reaches_output {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (i : Nat)
+    (hi : i ∈ PEqualNP.TopForm.tops G C)
+    (j : Nat) (hj : j < C.gates.length)
+    (hleaf : n+i ∈ symbolicSupport n C (n+j)) :
+    n+i ∈ symbolicSupport n C C.output := by
+  have hn := top_wire_not_atom G C i hi
+  have aux : ∀ d j : Nat, d = C.gates.length-j →
+      j < C.gates.length → n+i ∈ symbolicSupport n C (n+j) →
+      n+i ∈ symbolicSupport n C C.output := by
+    intro d
+    induction d using Nat.strongRecOn with
+    | ind d ih =>
+        intro j hdist hj hm
+        rcases least_gate_has_reader G C hmin j hj with hout | ⟨k,hk,hjk,hr⟩
+        · rw [hout]
+          exact hm
+        · rcases hmin.1.1 _ (actual_gate_mem C k hk) with ha | ho
+          · exact False.elim (hn (and_operand_support_subset G C hmin.1 htop
+              k hk ha (n+j) hr hm))
+          · have hd : C.gates.length-k < d := by omega
+            exact ih (C.gates.length-k) hd k rfl hk
+              (or_reader_support_subset C hmin.1 k (n+j) hk ho hr hm)
+  exact aux (C.gates.length-j) j rfl hj hleaf
+
+theorem output_support_eq_top_wires {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (u v : Fin n) (he : G.Adj u v) :
+    symbolicSupport n C C.output = topWires G C := by
+  apply Finset.Subset.antisymm
+  · exact output_support_tops G C hmin u v he
+  · intro a ha
+    obtain ⟨i,hi,heq⟩ := Finset.mem_image.mp ha
+    have hm := Finset.mem_filter.mp hi
+    rw [← heq]
+    apply top_leaf_reaches_output G C hmin htop i hi i (Finset.mem_range.mp hm.1)
+    rw [and_wire_symbolic_singleton C i hm.2.1]
+    simp
+
+theorem top_wires_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (topWires G C).card = (PEqualNP.TopForm.tops G C).card := by
+  unfold topWires
+  apply Finset.card_image_of_injective
+  intro a b h
+  change n+a = n+b at h
+  omega
+
+theorem clean_support_subset_tops {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (j : Nat)
+    (hj : j < C.gates.length) (hc : PEqualNP.TopForm.BelowF G C j) :
+    symbolicSupport n C (n+j) ⊆ topWires G C := by
+  intro a ha
+  have himp : ∀ x : Fin n → Bool, wireVal n C a x = true →
+      graphFun G ∅ x = true := by
+    intro x hx
+    exact hc x ((symbolic_eval C hAO x (n+j)).mpr ⟨a,ha,hx⟩)
+  rcases symbolic_leaf_kind C hAO (n+j) (by omega) a ha with hr | ⟨i,hi,he,hop⟩
+  · have ham : a ∈ atomUniverse G C :=
+      Finset.mem_union.mpr (Or.inl (Finset.mem_range.mpr hr))
+    obtain ⟨x,hx,hf⟩ := atom_dirty_witness G C a ham
+    have ht := himp x hx
+    rw [hf] at ht
+    contradiction
+  · have hb : PEqualNP.TopForm.BelowF G C i := by
+      intro x hx
+      apply himp x
+      rw [he]
+      exact hx
+    exact Finset.mem_image.mpr ⟨i,Finset.mem_filter.mpr
+      ⟨Finset.mem_range.mpr hi,hop,hb⟩,he.symm⟩
+
+theorem support_tops_implies_clean {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hs : symbolicSupport n C (n+j) ⊆ topWires G C) :
+    PEqualNP.TopForm.BelowF G C j := by
+  intro x hx
+  obtain ⟨a,ha,ht⟩ := (symbolic_eval C hAO x (n+j)).mp hx
+  obtain ⟨i,hi,he⟩ := Finset.mem_image.mp (hs ha)
+  rw [← he] at ht
+  exact (Finset.mem_filter.mp hi).2.2 x ht
+
+/-- Positive edge rows are enough to establish the full graph function
+for an OR of any subset of the clean AND gates. -/
+theorem edge_cover_full_truth {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (T : Finset Nat)
+    (hT : T ⊆ PEqualNP.TopForm.tops G C)
+    (hcover : ∀ u v : Fin n, G.Adj u v →
+      ∃ j ∈ T, gateVal n C j (pairInput u v) = true)
+    (x : Fin n → Bool) :
+    graphFun G ∅ x = true ↔ ∃ j ∈ T, gateVal n C j x = true := by
+  constructor
+  · intro hx
+    have he : ∃ u v, G.Adj u v ∧ x u = true ∧ x v = true := by
+      simpa [graphFun] using hx
+    obtain ⟨u,v,huv,hu,hv⟩ := he
+    obtain ⟨j,hj,ht⟩ := hcover u v huv
+    have hm : ∀ w, pairInput u v w = true → x w = true := by
+      intro w hw
+      have h : w = u ∨ w = v := by simpa [pairInput] using hw
+      rcases h with rfl | rfl
+      · exact hu
+      · exact hv
+    exact ⟨j,hj,wire_monotone C hAO (pairInput u v) x hm (n+j) ht⟩
+  · rintro ⟨j,hj,ht⟩
+    exact (Finset.mem_filter.mp (hT hj)).2.2 x ht
+
+/-- If a top lacks an exclusive positive edge, it can be omitted
+from the semantic OR without changing the function. Realizing
+this reduced OR by a smaller AO2 circuit is a separate step. -/
+theorem no_private_edge_cover {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (i : Nat) (hi : i ∈ PEqualNP.TopForm.tops G C)
+    (hn : ¬ ∃ u v : Fin n, G.Adj u v ∧
+      gateVal n C i (pairInput u v) = true ∧
+      ∀ j ∈ PEqualNP.TopForm.tops G C, j ≠ i →
+        gateVal n C j (pairInput u v) = false)
+    (x : Fin n → Bool) :
+    graphFun G ∅ x = true ↔
+      ∃ j ∈ (PEqualNP.TopForm.tops G C).erase i, gateVal n C j x = true := by
+  classical
+  apply edge_cover_full_truth G C hmin.1 _ (Finset.erase_subset _ _) _ x
+  intro u v he
+  obtain ⟨j,hj,ht⟩ := (graph_eq_or_of_tops G C hmin u v he (pairInput u v)).mp
+    (graph_pair_true G u v he)
+  by_cases hji : j = i
+  · subst j
+    by_contra hh
+    apply hn
+    refine ⟨u,v,he,ht,?_⟩
+    intro k hk hki
+    cases hv : gateVal n C k (pairInput u v) with
+    | false => rfl
+    | true => exact False.elim (hh ⟨k,Finset.mem_erase.mpr ⟨hki,hk⟩,hv⟩)
+  · exact ⟨j,Finset.mem_erase.mpr ⟨hji,hj⟩,ht⟩
+
+end L2260FirstMerge
