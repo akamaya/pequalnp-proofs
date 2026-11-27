@@ -566,12 +566,12 @@ private theorem gateStep_le (w z : List Bool) (g : Gate)
   rcases hop with ho | ho
   · rw [ho, hab]
     simp only [List.map_cons, List.map_nil, GateOp.eval, List.all_cons, List.all_nil,
-      id_eq, Bool.and_true, Bool.and_eq_true]
+      id_eq, Bool.and_true, Bool.and_eq_true_iff]
     intro hh
     exact ⟨h a hh.1,h b hh.2⟩
   · rw [ho, hab]
     simp only [List.map_cons, List.map_nil, GateOp.eval, List.any_cons, List.any_nil,
-      id_eq, Bool.or_false, Bool.or_eq_true]
+      id_eq, Bool.or_false, Bool.or_eq_true_iff]
     intro hh
     rcases hh with ha | hb
     · exact Or.inl (h a ha)
@@ -696,8 +696,10 @@ theorem clean_effective_adj {n : Nat} (G : SimpleGraph (Fin n))
     (hc : PEqualNP.TopForm.BelowF G C j)
     (u v : Fin n) (hu : u ∈ effectiveSingletons C a) (hv : v ∈ effectiveSingletons C b) :
     G.Adj u v := by
-  have hu' := (Finset.mem_filter.mp hu).2
-  have hv' := (Finset.mem_filter.mp hv).2
+  have hu' : (C.wires (List.ofFn (pairInput u u))).getD a false = true :=
+    (Finset.mem_filter.mp hu).2
+  have hv' : (C.wires (List.ofFn (pairInput v v))).getD b false = true :=
+    (Finset.mem_filter.mp hv).2
   have hleft := wire_monotone C hAO (pairInput u u) (pairInput u v) (by
     intro w h
     simp [pairInput] at h ⊢
@@ -708,8 +710,7 @@ theorem clean_effective_adj {n : Nat} (G : SimpleGraph (Fin n))
     exact Or.inr h)
   have ht : gateVal n C j (pairInput u v) = true := by
     rw [gateVal_and_eq C hAO.2.1 j a b hj hop hin]
-    rw [hleft a hu',hright b hv']
-    rfl
+    simp [hleft a hu',hright b hv']
   exact graph_pair_adj_of_true G u v (hc _ ht)
 
 /-- The effective singleton supports of an actual clean AND form a
