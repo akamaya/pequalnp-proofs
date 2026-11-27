@@ -728,3 +728,198 @@ theorem clean_effective_star {n : Nat} (G : SimpleGraph (Fin n))
   exact clean_effective_adj G C hAO j a b hj hop hin hc u v hu hv
 
 end L2260FirstMerge
+
+/-! ## Effective supports and component merging
+
+This construction counts only merges of original-vertex labels.
+It does not yet construct the full auxiliary graph with two junk atoms.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+/-- OR analogue of gateVal_and_eq. -/
+theorem gateVal_or_eq {n : Nat} (C : Circuit)
+    (hr : ReadsBack n C) (j a b : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.or)
+    (hin : (gateAt C j).inputs = [a,b]) (x : Fin n → Bool) :
+    gateVal n C j x =
+      ((C.wires (List.ofFn x)).getD a false &&
+       (C.wires (List.ofFn x)).getD b false) := by
+  obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj
+  have hat : gateAt C j = g := by
+    unfold gateAt
+    rw [hg, ← hpre]
+    exact split_getD pre post g _
+  have ha : a < n + pre.length := by
+    rw [hpre]
+    apply hr j hj a
+    rw [hin]
+    simp
+  have hb : b < n + pre.length := by
+    rw [hpre]
+    apply hr j hj b
+    rw [hin]
+    simp
+  have hop' : g.op = GateOp.or := hat ▸ hop
+  have hin' : g.inputs = [a,b] := hat ▸ hin
+  rw [prefix_wire C pre (g :: post) hg x a ha,
+    prefix_wire C pre (g :: post) hg x b hb]
+  let w := pre.foldl gateStep (List.ofFn x)
+  have hw : w.length = n+j := by
+    dsimp [w]
+    rw [fold_length, hpre]
+    simp
+  change (C.gates.foldl gateStep (List.ofFn x)).getD (n+j) false =
+    (w.getD a false || w.getD b false)
+  rw [hg, List.foldl_append]
+  change (post.foldl gateStep (gateStep w g)).getD (n+j) false = _
+  have hi : n+j < (gateStep w g).length := by
+    simp [gateStep, hw]
+  rw [fold_preserves_getD post (gateStep w g) (n+j) hi]
+  unfold gateStep
+  rw [getD_snoc, hw]
+  simp [hop', hin', GateOp.eval]
+
+
+/-- An original input wire is true on precisely its own singleton. -/
+theorem effective_input {n : Nat} (C : Circuit) (u : Fin n) :
+    effectiveSingletons C (u : Nat) = {u} := by
+  ext v
+  have hw : (C.wires (List.ofFn (pairInput v v))).getD (u : Nat) false =
+      (List.ofFn (pairInput v v)).getD (u : Nat) false := by
+    change (C.gates.foldl gateStep (List.ofFn (pairInput v v))).getD (u : Nat) false = _
+    apply fold_preserves_getD
+    simpa using u.isLt
+  have hx : (List.ofFn (pairInput v v)).getD (u : Nat) false = pairInput v v u := by
+    simp [List.getD_eq_getElem?_getD, u.isLt]
+  simp only [effectiveSingletons, Finset.mem_filter, Finset.mem_univ, true_and]
+  rw [hw, hx]
+  simp [pairInput, eq_comm]
+
+theorem effective_and {n : Nat} (C : Circuit) (hr : ReadsBack n C)
+    (j a b : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.and) (hin : (gateAt C j).inputs = [a,b]) :
+    effectiveSingletons (n := n) C (n+j) =
+      effectiveSingletons C a ∩ effectiveSingletons C b := by
+  ext v
+  simp only [effectiveSingletons, Finset.mem_filter, Finset.mem_univ, true_and,
+    Finset.mem_inter]
+  change gateVal n C j (pairInput v v) = true ↔ _
+  rw [gateVal_and_eq C hr j a b hj hop hin]
+  exact Bool.and_eq_true_iff
+
+theorem effective_or {n : Nat} (C : Circuit) (hr : ReadsBack n C)
+    (j a b : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.or) (hin : (gateAt C j).inputs = [a,b]) :
+    effectiveSingletons (n := n) C (n+j) =
+      effectiveSingletons C a ∪ effectiveSingletons C b := by
+  ext v
+  simp only [effectiveSingletons, Finset.mem_filter, Finset.mem_univ, true_and,
+    Finset.mem_union]
+  change gateVal n C j (pairInput v v) = true ↔ _
+  rw [gateVal_or_eq C hr j a b hj hop hin]
+  exact Bool.or_eq_true_iff
+
+/-- A clean wire at a gate index has no effective singleton inputs. -/
+theorem effective_clean_empty {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hc : PEqualNP.TopForm.BelowF G C j) :
+    effectiveSingletons (n := n) C (n+j) = ∅ := by
+  apply Finset.eq_empty_iff_forall_notMem.mpr
+  intro v hv
+  have ht : gateVal n C j (pairInput v v) = true :=
+    (Finset.mem_filter.mp hv).2
+  have hf := hc _ ht
+  rw [graph_singleton_false G v] at hf
+  contradiction
+
+/-- All members of a set occupy one label class (empty sets allowed). -/
+def SupportLocal {α β : Type} (label : α → β) (S : Finset α) : Prop :=
+  ∀ u ∈ S, ∀ v ∈ S, label u = label v
+
+theorem local_subset {α β : Type} (label : α → β) (A B : Finset α)
+    (h : SupportLocal label B) (hs : A ⊆ B) : SupportLocal label A :=
+  fun u hu v hv => h u (hs hu) v (hs hv)
+
+theorem local_inter {α β : Type} [DecidableEq α] (label : α → β)
+    (A B : Finset α) (h : SupportLocal label A) :
+    SupportLocal label (A ∩ B) :=
+  local_subset label _ _ h (fun _ hx => (Finset.mem_inter.mp hx).1)
+
+theorem local_empty {α β : Type} (label : α → β) : SupportLocal label ∅ := by
+  intro u hu
+  simp at hu
+
+theorem local_singleton {α β : Type} [DecidableEq α] (label : α → β)
+    (a : α) : SupportLocal label {a} := by
+  intro u hu v hv
+  rw [Finset.mem_singleton.mp hu, Finset.mem_singleton.mp hv]
+
+/-- Number of nonempty classes of original vertices. -/
+def labelCount {α β : Type} [Fintype α] [DecidableEq β] (label : α → β) : Nat :=
+  (Finset.univ.image label).card
+
+def mergeLabel {α β : Type} [DecidableEq β] (label : α → β)
+    (p q : β) (x : α) : β :=
+  if label x = q then p else label x
+
+theorem merge_preserves_local {α β : Type} [DecidableEq β]
+    (label : α → β) (p q : β) (S : Finset α)
+    (h : SupportLocal label S) : SupportLocal (mergeLabel label p q) S := by
+  intro u hu v hv
+  unfold mergeLabel
+  rw [h u hu v hv]
+
+/-- Relabeling one entire class cannot destroy more than one class. -/
+theorem merge_count {α β : Type} [Fintype α] [DecidableEq β]
+    (label : α → β) (p q : β) :
+    labelCount label ≤ labelCount (mergeLabel label p q) + 1 := by
+  classical
+  unfold labelCount
+  have hs : Finset.univ.image label ⊆
+      insert q (Finset.univ.image (mergeLabel label p q)) := by
+    intro y hy
+    obtain ⟨x,hx,rfl⟩ := Finset.mem_image.mp hy
+    by_cases h : label x = q
+    · rw [h]
+      exact Finset.mem_insert_self _ _
+    · apply Finset.mem_insert_of_mem
+      exact Finset.mem_image.mpr ⟨x,hx,by simp [mergeLabel,h]⟩
+  exact (Finset.card_le_card hs).trans (Finset.card_insert_le _ _)
+
+/-- One OR can make the union local with at most one class merge.
+Every previously local support stays local. -/
+theorem merge_union_local {α β : Type} [Fintype α] [DecidableEq α] [DecidableEq β]
+    (label : α → β) (A B : Finset α)
+    (hA : SupportLocal label A) (hB : SupportLocal label B) :
+    ∃ label' : α → β,
+      (∀ S : Finset α, SupportLocal label S → SupportLocal label' S) ∧
+      SupportLocal label' (A ∪ B) ∧ labelCount label ≤ labelCount label' + 1 := by
+  classical
+  by_cases hAe : A = ∅
+  · subst A
+    exact ⟨label,fun _ h => h,by simpa using hB,by omega⟩
+  by_cases hBe : B = ∅
+  · subst B
+    exact ⟨label,fun _ h => h,by simpa using hA,by omega⟩
+  obtain ⟨a,ha⟩ := Finset.nonempty_iff_ne_empty.mpr hAe
+  obtain ⟨b,hb⟩ := Finset.nonempty_iff_ne_empty.mpr hBe
+  let label' := mergeLabel label (label a) (label b)
+  have hval : ∀ x ∈ A ∪ B, label' x = label a := by
+    intro x hx
+    rcases Finset.mem_union.mp hx with hx | hx
+    · dsimp [label',mergeLabel]
+      rw [hA x hx a ha]
+      split <;> rfl
+    · dsimp [label',mergeLabel]
+      rw [hB x hx b hb]
+      simp
+  refine ⟨label',fun S h => merge_preserves_local label _ _ S h,?_,?_⟩
+  · intro u hu v hv
+    exact (hval u hu).trans (hval v hv).symm
+  · exact merge_count label _ _
+
+end L2260FirstMerge
