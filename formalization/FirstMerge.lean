@@ -1357,3 +1357,149 @@ theorem auxiliary_rank_tight (n r t b total : Nat)
   omega
 
 end L2260FirstMerge
+
+/-! ## Symbolic OR supports of the actual circuit
+
+An atom is the wire of an original input or an AND gate. OR gates are
+expanded recursively, stopping at atoms. Clean AND atoms are not yet
+excluded from dirty OR cones; that needs the top-form argument.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+attribute [local instance] gateOpDecEq
+
+def Expandable (n : Nat) (C : Circuit) (w : Nat) : Prop :=
+  n ≤ w ∧ w < n+C.gates.length ∧
+    (gateAt C (w-n)).op = GateOp.or ∧
+    PEqualNP.TopForm.opnd C (w-n) 0 < w ∧
+    PEqualNP.TopForm.opnd C (w-n) 1 < w
+
+instance (n : Nat) (C : Circuit) (w : Nat) : Decidable (Expandable n C w) := by
+  unfold Expandable
+  infer_instance
+
+/-- Recursion is on the actual wire index. The guard makes it total
+even for malformed circuits. Under IsAO2 every real OR is expandable. -/
+def symbolicSupport (n : Nat) (C : Circuit) (w : Nat) : Finset Nat :=
+  if h : Expandable n C w then
+    symbolicSupport n C (PEqualNP.TopForm.opnd C (w-n) 0) ∪
+      symbolicSupport n C (PEqualNP.TopForm.opnd C (w-n) 1)
+  else {w}
+termination_by w
+decreasing_by
+  · exact h.2.2.2.1
+  · exact h.2.2.2.2
+
+theorem symbolic_expand (n : Nat) (C : Circuit) (w : Nat)
+    (h : Expandable n C w) :
+    symbolicSupport n C w =
+      symbolicSupport n C (PEqualNP.TopForm.opnd C (w-n) 0) ∪
+      symbolicSupport n C (PEqualNP.TopForm.opnd C (w-n) 1) := by
+  rw [symbolicSupport] <;> simp [h]
+
+theorem symbolic_atom (n : Nat) (C : Circuit) (w : Nat)
+    (h : ¬ Expandable n C w) : symbolicSupport n C w = {w} := by
+  rw [symbolicSupport] <;> simp [h]
+
+private theorem actual_gate_mem (C : Circuit) (j : Nat) (hj : j < C.gates.length) :
+    gateAt C j ∈ C.gates := by
+  obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj
+  have hat : gateAt C j = g := by
+    unfold gateAt
+    rw [hg, ← hpre]
+    exact split_getD pre post g _
+  rw [hat,hg]
+  simp
+
+/-- Both official operands are present, in order, and read backwards. -/
+theorem actual_opnds {n : Nat} (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hj : j < C.gates.length) :
+    (gateAt C j).inputs = [PEqualNP.TopForm.opnd C j 0, PEqualNP.TopForm.opnd C j 1] ∧
+    PEqualNP.TopForm.opnd C j 0 < n+j ∧ PEqualNP.TopForm.opnd C j 1 < n+j := by
+  obtain ⟨a,b,hin⟩ := two_inputs (gateAt C j).inputs
+    (hAO.2.2 _ (actual_gate_mem C j hj))
+  have ha : a < n+j := by
+    apply hAO.2.1 j hj a
+    rw [hin]
+    simp
+  have hb : b < n+j := by
+    apply hAO.2.1 j hj b
+    rw [hin]
+    simp
+  simp [PEqualNP.TopForm.opnd, hin, ha, hb]
+
+theorem real_or_expandable {n : Nat} (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.or) : Expandable n C (n+j) := by
+  obtain ⟨_,ha,hb⟩ := actual_opnds C hAO j hj
+  have he : n+j-n = j := by omega
+  unfold Expandable
+  rw [he]
+  exact ⟨by omega,by omega,hop,ha,hb⟩
+
+/-- The symbolic OR support evaluates to exactly the effective
+singleton set of the original wire, using actual atom truth values. -/
+theorem symbolic_effective {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w : Nat) :
+    atomEffective (effectiveSingletons (n := n) C) (symbolicSupport n C w) =
+      effectiveSingletons C w := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases h : Expandable n C w
+      · obtain ⟨hn,hw,hop,ha,hb⟩ := h
+        have hj : w-n < C.gates.length := by omega
+        have he : n+(w-n) = w := by omega
+        rw [symbolic_expand n C w ⟨hn,hw,hop,ha,hb⟩, atom_effective_union,
+          ih _ ha, ih _ hb]
+        have hs := effective_or C hAO.2.1 (w-n) _ _ hj hop
+          (actual_opnds C hAO (w-n) hj).1
+        rw [he] at hs
+        exact hs.symm
+      · rw [symbolic_atom n C w h]
+        ext u
+        simp [atomEffective]
+
+/-- Every leaf of a symbolic support is at or before the root wire. -/
+theorem symbolic_leaf_le (n : Nat) (C : Circuit) (w a : Nat)
+    (ha : a ∈ symbolicSupport n C w) : a ≤ w := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases h : Expandable n C w
+      · rw [symbolic_expand n C w h] at ha
+        rcases Finset.mem_union.mp ha with ha | ha
+        · exact (ih _ h.2.2.2.1 ha).trans (Nat.le_of_lt h.2.2.2.1)
+        · exact (ih _ h.2.2.2.2 ha).trans (Nat.le_of_lt h.2.2.2.2)
+      · rw [symbolic_atom n C w h] at ha
+        exact (Finset.mem_singleton.mp ha).le
+
+/-- For a real root in a well-formed circuit every leaf is an original
+input or a real AND wire, never an OR wire. -/
+theorem symbolic_leaf_kind {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w : Nat) (hw : w < n+C.gates.length)
+    (a : Nat) (ha : a ∈ symbolicSupport n C w) :
+    a < n ∨ ∃ j < C.gates.length, a = n+j ∧ (gateAt C j).op = GateOp.and := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases h : Expandable n C w
+      · rw [symbolic_expand n C w h] at ha
+        rcases Finset.mem_union.mp ha with ha | ha
+        · exact ih _ h.2.2.2.1 (by omega) ha
+        · exact ih _ h.2.2.2.2 (by omega) ha
+      · rw [symbolic_atom n C w h] at ha
+        have he : a = w := Finset.mem_singleton.mp ha
+        subst a
+        by_cases hn : w < n
+        · exact Or.inl hn
+        · have hj : w-n < C.gates.length := by omega
+          have heq : n+(w-n) = w := by omega
+          rcases hAO.1 _ (actual_gate_mem C (w-n) hj) with hop | hop
+          · exact Or.inr ⟨w-n,hj,heq.symm,hop⟩
+          · have hx := real_or_expandable C hAO (w-n) hj hop
+            rw [heq] at hx
+            exact False.elim (h hx)
+
+end L2260FirstMerge
