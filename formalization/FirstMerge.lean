@@ -335,3 +335,111 @@ theorem graph_edge_first_merge {n : Nat} (G : SimpleGraph (Fin n))
     (hf _).trans (graph_singleton_false G v)⟩
 
 end L2260FirstMerge
+
+/-! ## Indexed witnesses and stable wire values -/
+
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+theorem fold_length (gs : List Gate) (w : List Bool) :
+    (gs.foldl gateStep w).length = w.length + gs.length := by
+  induction gs generalizing w with
+  | nil => simp
+  | cons g gs ih =>
+      change (gs.foldl gateStep (gateStep w g)).length = w.length + (g :: gs).length
+      rw [ih]
+      simp only [gateStep, List.length_append, List.length_cons, List.length_nil]
+      omega
+
+/-- Appending further gates cannot change an already existing wire. -/
+theorem fold_preserves_getD (gs : List Gate) (w : List Bool) (i : Nat)
+    (hi : i < w.length) :
+    (gs.foldl gateStep w).getD i false = w.getD i false := by
+  induction gs generalizing w with
+  | nil => rfl
+  | cons g gs ih =>
+      change (gs.foldl gateStep (gateStep w g)).getD i false = w.getD i false
+      have hi' : i < (gateStep w g).length := by
+        simp [gateStep]
+        omega
+      rw [ih (gateStep w g) hi']
+      unfold gateStep
+      rw [getD_snoc]
+      simp [Nat.ne_of_lt hi]
+
+private theorem split_getD {α : Type} (pre post : List α) (g d : α) :
+    (pre ++ g :: post).getD pre.length d = g := by
+  induction pre with
+  | nil => simp
+  | cons h pre ih =>
+      simpa only [List.cons_append, List.length_cons, List.getD_cons_succ] using ih
+
+/-- Use the final official wire list rather than the evaluation prefix. -/
+def finalSample {n : Nat} (C : Circuit) (u v : Fin n) (i : Nat) : Sample :=
+  wireSample (C.wires (List.ofFn (pairInput u u)))
+    (C.wires (List.ofFn (pairInput v v))) (C.wires (List.ofFn (pairInput u v))) i
+
+private theorem prefix_wire {n : Nat} (C : Circuit) (pre tail : List Gate)
+    (h : C.gates = pre ++ tail) (x : Fin n → Bool) (i : Nat)
+    (hi : i < n + pre.length) :
+    (C.wires (List.ofFn x)).getD i false =
+      (pre.foldl gateStep (List.ofFn x)).getD i false := by
+  change (C.gates.foldl gateStep (List.ofFn x)).getD i false = _
+  rw [h, List.foldl_append]
+  apply fold_preserves_getD
+  rw [fold_length]
+  simpa using hi
+
+theorem finalSample_gate {n : Nat} (C : Circuit) (u v : Fin n) (j : Nat) :
+    finalSample C u v (n+j) =
+      ⟨gateVal n C j (pairInput u u), gateVal n C j (pairInput v v),
+        gateVal n C j (pairInput u v)⟩ := rfl
+
+/-- The opposite-singleton witness is now a gate index of the actual
+circuit, with its actual two operand wire indices and their final values. -/
+theorem graph_edge_first_merge_indexed {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (u v : Fin n) (he : G.Adj u v) :
+    ∃ j < C.gates.length, (gateAt C j).op = GateOp.and ∧
+      ∃ a b, (gateAt C j).inputs = [a,b] ∧
+        Opposite (finalSample C u v a) (finalSample C u v b) := by
+  obtain ⟨pre,g,post,hg,hcross⟩ := graph_edge_first_merge G C hmin u v he
+  obtain ⟨hop,a,b,hin,hopp⟩ := hcross
+  have hj : pre.length < C.gates.length := by
+    rw [hg]
+    simp only [List.length_append, List.length_cons]
+    omega
+  have hat : gateAt C pre.length = g := by
+    unfold gateAt
+    rw [hg]
+    exact split_getD pre post g _
+  have ha : a < n + pre.length := by
+    apply hmin.1.2.1 pre.length hj a
+    rw [hat, hin]
+    simp
+  have hb : b < n + pre.length := by
+    apply hmin.1.2.1 pre.length hj b
+    rw [hat, hin]
+    simp
+  have eqsample (i : Nat) (hi : i < n + pre.length) :
+      finalSample C u v i =
+        wireSample (pre.foldl gateStep (List.ofFn (pairInput u u)))
+          (pre.foldl gateStep (List.ofFn (pairInput v v)))
+          (pre.foldl gateStep (List.ofFn (pairInput u v))) i := by
+    unfold finalSample wireSample
+    rw [prefix_wire C pre (g :: post) hg (pairInput u u) i hi,
+      prefix_wire C pre (g :: post) hg (pairInput v v) i hi,
+      prefix_wire C pre (g :: post) hg (pairInput u v) i hi]
+  refine ⟨pre.length,hj,?_,a,b,?_,?_⟩
+  · rw [hat]
+    exact hop
+  · rw [hat]
+    exact hin
+  · rw [eqsample a ha, eqsample b hb]
+    exact hopp
+
+end L2260FirstMerge
