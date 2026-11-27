@@ -607,3 +607,11 @@ cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/f
 ```
 
 Provisional 95/100 unchanged until an entire case is excluded. Lean reduction and UNSAT certificates remain incomplete; no six-hour completion guarantee.
+
+### FirstMerge crossing-star lemmas
+
+WSLの最新報告はLEAN INDEXED FIRST MERGE CHECK OK（終了コード0、警告のみ）。実行時のcommit hashはログにないため、indexed版の確認も兼ねて次回更新後に再検証する。cross_card_le_one、cross_pairs_common_center、cross_pairs_share_endpoint、cross_pairs_same_blocksを追加。NoFourCycleと交差隣接性から星形を導き、成分局所性を仮定して成分ペアの一致を示す。新規補題は未コンパイル。実際のclean ANDのeffective singleton集合に交差隣接性と成分局所性を与える証明はまだ必要。SATコード変更なし。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CROSS STAR CHECK OK"
+```
