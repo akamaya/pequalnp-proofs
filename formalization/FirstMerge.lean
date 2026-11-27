@@ -4919,3 +4919,270 @@ theorem nonclean_or_no_clean_or_input {n : Nat} (G : SimpleGraph (Fin n))
     (Finset.mem_range.mp hm.1) hm.2.2 hj hr)
 
 end L2260FirstMerge
+
+
+/-! ## Closed subcircuit extraction
+
+Keep any backward-closed set of physical gates. Renumber retained
+wires by their rank in the retained set, preserving their Boolean
+values on every input. The output of this intermediate circuit is
+irrelevant: a new terminal OR network will be appended separately.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def appendPhysicalGate (C : Circuit) (g : Gate) : Circuit :=
+  ⟨C.gates ++ [g],C.output⟩
+
+theorem append_physical_ao {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (g : Gate)
+    (hop : g.op = GateOp.and ∨ g.op = GateOp.or)
+    (hin : g.inputs.length = 2)
+    (hback : ∀ w ∈ g.inputs, w < n+C.gates.length) :
+    PEqualNP.TopForm.IsAO2 n (appendPhysicalGate C g) := by
+  refine ⟨?_,?_,?_⟩
+  · intro a ha
+    change a ∈ C.gates ++ [g] at ha
+    rcases List.mem_append.mp ha with h | h
+    · exact hAO.1 a h
+    · have he : a = g := by simpa using h
+      subst a
+      exact hop
+  · intro j hj w hw
+    change j < (C.gates ++ [g]).length at hj
+    simp only [List.length_append,List.length_cons,List.length_nil] at hj
+    by_cases hlt : j < C.gates.length
+    · have he : gateAt (appendPhysicalGate C g) j = gateAt C j :=
+        delete_getD_left _ _ _ j hlt
+      rw [he] at hw
+      exact hAO.2.1 j hlt w hw
+    · have he : j = C.gates.length := by omega
+      subst j
+      have hg : gateAt (appendPhysicalGate C g) C.gates.length = g :=
+        split_getD C.gates [] g _
+      rw [hg] at hw
+      exact hback w hw
+  · intro a ha
+    change a ∈ C.gates ++ [g] at ha
+    rcases List.mem_append.mp ha with h | h
+    · exact hAO.2.2 a h
+    · have he : a = g := by simpa using h
+      subst a
+      exact hin
+
+theorem append_physical_old_wire {n : Nat} (C : Circuit) (g : Gate)
+    (x : Fin n → Bool) (w : Nat) (hw : w < n+C.gates.length) :
+    wireVal n (appendPhysicalGate C g) w x = wireVal n C w x := by
+  exact prefix_wire (appendPhysicalGate C g) C.gates [g] rfl x w hw
+
+theorem append_physical_new_wire {n : Nat} (C : Circuit) (g : Gate)
+    (x : Fin n → Bool) :
+    wireVal n (appendPhysicalGate C g) (n+C.gates.length) x =
+      g.op.eval (g.inputs.map fun w => wireVal n C w x) := by
+  let z := C.gates.foldl gateStep (List.ofFn x)
+  have hz : z.length = n+C.gates.length := by
+    dsimp [z]
+    rw [fold_length]
+    simp
+  change ((C.gates ++ [g]).foldl gateStep (List.ofFn x)).getD
+    (n+C.gates.length) false =
+      g.op.eval (g.inputs.map fun w => z.getD w false)
+  rw [List.foldl_append]
+  change (gateStep z g).getD (n+C.gates.length) false = _
+  unfold gateStep
+  rw [generic_getD_snoc,← hz]
+  simp
+
+theorem index_rank_succ (S : Finset Nat) (j : Nat) :
+    indexRank S (j+1) = indexRank S j + if j ∈ S then 1 else 0 := by
+  classical
+  unfold indexRank
+  by_cases h : j ∈ S
+  · have he : S.filter (fun a => a < j+1) =
+        insert j (S.filter fun a => a < j) := by
+      ext a
+      simp only [Finset.mem_filter,Finset.mem_insert]
+      constructor
+      · rintro ⟨ha,hl⟩
+        by_cases e : a = j
+        · exact Or.inl e
+        · exact Or.inr ⟨ha,by omega⟩
+      · rintro (e | ⟨ha,hl⟩)
+        · subst a
+          exact ⟨h,by omega⟩
+        · exact ⟨ha,by omega⟩
+    rw [he,Finset.card_insert_of_notMem,if_pos h]
+    simp
+  · have he : S.filter (fun a => a < j+1) =
+        S.filter (fun a => a < j) := by
+      ext a
+      simp only [Finset.mem_filter]
+      constructor
+      · rintro ⟨ha,hl⟩
+        have hn : a ≠ j := by
+          intro e
+          subst a
+          exact h ha
+        exact ⟨ha,by omega⟩
+      · rintro ⟨ha,hl⟩
+        exact ⟨ha,by omega⟩
+    rw [he,if_neg h,Nat.add_zero]
+
+def retainedWire (n : Nat) (S : Finset Nat) (w : Nat) : Prop :=
+  w < n ∨ w-n ∈ S
+
+def retainedIndex (n : Nat) (S : Finset Nat) (w : Nat) : Nat :=
+  if w < n then w else n+indexRank S (w-n)
+
+theorem retained_index_bound {n : Nat} (S : Finset Nat)
+    (w j : Nat) (hw : w < n+j) (hr : retainedWire n S w) :
+    retainedIndex n S w < n+indexRank S j := by
+  unfold retainedIndex
+  split
+  · omega
+  · rename_i hn
+    have hm : w-n ∈ S := hr.resolve_left hn
+    have hlt : w-n < j := by omega
+    have h := index_rank_strict S (w-n) j hm hlt
+    omega
+
+theorem retained_index_gate (n : Nat) (S : Finset Nat) (j : Nat) :
+    retainedIndex n S (n+j) = n+indexRank S j := by
+  unfold retainedIndex
+  rw [if_neg (show ¬ n+j < n by omega)]
+  congr 1
+  omega
+
+/-- A backward-closed retained set can be rebuilt in the official AO2
+model, with an exact gate count and preservation of every retained
+wire. The induction scans original physical indices in order. -/
+theorem extract_closed_prefix {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (S : Finset Nat)
+    (hclosed : ∀ i ∈ S, i < C.gates.length →
+      ∀ w ∈ (gateAt C i).inputs, retainedWire n S w)
+    (j : Nat) (hj : j ≤ C.gates.length) :
+    ∃ D : Circuit, PEqualNP.TopForm.IsAO2 n D ∧
+      D.gates.length = indexRank S j ∧
+      ∀ w < n+j, retainedWire n S w → ∀ x : Fin n → Bool,
+        wireVal n D (retainedIndex n S w) x = wireVal n C w x := by
+  classical
+  induction j with
+  | zero =>
+      let D : Circuit := ⟨[],0⟩
+      refine ⟨D,?_,?_,?_⟩
+      · refine ⟨?_,?_,?_⟩
+        · intro g hg
+          change g ∈ ([] : List Gate) at hg
+          simp at hg
+        · intro i hi
+          change i < 0 at hi
+          omega
+        · intro g hg
+          change g ∈ ([] : List Gate) at hg
+          simp at hg
+      · simp [D,indexRank]
+      · intro w hw _ x
+        have hlt : w < n := by omega
+        let u : Fin n := ⟨w,hlt⟩
+        have he : retainedIndex n S w = w := by simp [retainedIndex,hlt]
+        rw [he]
+        exact (raw_wire_value D x u).trans (raw_wire_value C x u).symm
+  | succ j ih =>
+      have hjlt : j < C.gates.length := by omega
+      obtain ⟨D,hD,hlen,hval⟩ := ih (by omega)
+      by_cases hm : j ∈ S
+      · let g := gateAt C j
+        let g' : Gate := ⟨g.op,g.inputs.map (retainedIndex n S)⟩
+        let E := appendPhysicalGate D g'
+        have hback : ∀ w ∈ g'.inputs, w < n+D.gates.length := by
+          intro w hw
+          change w ∈ g.inputs.map (retainedIndex n S) at hw
+          obtain ⟨a,ha,rfl⟩ := List.mem_map.mp hw
+          rw [hlen]
+          exact retained_index_bound S a j
+            (hAO.2.1 j hjlt a ha) (hclosed j hm hjlt a ha)
+        have hE := append_physical_ao D hD g'
+          (hAO.1 g (actual_gate_mem C j hjlt))
+          (by
+            change (g.inputs.map (retainedIndex n S)).length = 2
+            rw [List.length_map]
+            exact hAO.2.2 g (actual_gate_mem C j hjlt)) hback
+        have hlenE : E.gates.length = indexRank S (j+1) := by
+          change (D.gates ++ [g']).length = indexRank S (j+1)
+          rw [index_rank_succ,if_pos hm]
+          simp [hlen]
+        refine ⟨E,hE,hlenE,?_⟩
+        intro w hw hr x
+        by_cases hlt : w < n+j
+        · have hbound := retained_index_bound S w j hlt hr
+          rw [← hlen] at hbound
+          exact (append_physical_old_wire D g' x _ hbound).trans
+            (hval w hlt hr x)
+        · have he : w = n+j := by omega
+          subst w
+          rw [retained_index_gate,← hlen]
+          change wireVal n (appendPhysicalGate D g') (n+D.gates.length) x =
+            wireVal n C (n+j) x
+          rw [append_physical_new_wire]
+          change g.op.eval ((g.inputs.map (retainedIndex n S)).map
+            (fun a => wireVal n D a x)) = wireVal n C (n+j) x
+          have hmap : (g.inputs.map (retainedIndex n S)).map
+              (fun a => wireVal n D a x) =
+              g.inputs.map (fun a => wireVal n C a x) := by
+            rw [List.map_map]
+            apply List.map_congr_left
+            intro a ha
+            exact hval a (hAO.2.1 j hjlt a ha) (hclosed j hm hjlt a ha) x
+          rw [hmap]
+          obtain ⟨a,b,hin⟩ := two_inputs g.inputs
+            (hAO.2.2 g (actual_gate_mem C j hjlt))
+          rcases hAO.1 g (actual_gate_mem C j hjlt) with ha | ho
+          · have hv := gateVal_and_eq C hAO.2.1 j a b hjlt ha hin x
+            change wireVal n C (n+j) x =
+              (wireVal n C a x && wireVal n C b x) at hv
+            rw [hv,ha,hin]
+            simp [GateOp.eval]
+          · have hv := gateVal_or_eq C hAO.2.1 j a b hjlt ho hin x
+            change wireVal n C (n+j) x =
+              (wireVal n C a x || wireVal n C b x) at hv
+            rw [hv,ho,hin]
+            simp [GateOp.eval]
+      · refine ⟨D,hD,?_,?_⟩
+        · rw [index_rank_succ,if_neg hm,Nat.add_zero]
+          exact hlen
+        · intro w hw hr x
+          by_cases hlt : w < n+j
+          · exact hval w hlt hr x
+          · have he : w = n+j := by omega
+            subst w
+            have hnot : ¬ n+j < n := by omega
+            have h := hr.resolve_left hnot
+            have he' : n+j-n = j := by omega
+            rw [he'] at h
+            exact False.elim (hm h)
+
+theorem extract_closed_subcircuit {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (S : Finset Nat)
+    (hS : S ⊆ Finset.range C.gates.length)
+    (hclosed : ∀ i ∈ S, ∀ w ∈ (gateAt C i).inputs, retainedWire n S w) :
+    ∃ D : Circuit, PEqualNP.TopForm.IsAO2 n D ∧ D.gates.length = S.card ∧
+      ∀ w < n+C.gates.length, retainedWire n S w → ∀ x : Fin n → Bool,
+        wireVal n D (retainedIndex n S w) x = wireVal n C w x := by
+  obtain ⟨D,hD,hlen,hval⟩ := extract_closed_prefix C hAO S
+    (fun i hi _ => hclosed i hi) C.gates.length (Nat.le_refl _)
+  have he : S.filter (fun i => i < C.gates.length) = S := by
+    ext i
+    simp only [Finset.mem_filter,and_iff_left_iff_imp]
+    intro hi
+    exact Finset.mem_range.mp (hS hi)
+  unfold indexRank at hlen
+  rw [he] at hlen
+  exact ⟨D,hD,hlen,hval⟩
+
+end L2260FirstMerge
