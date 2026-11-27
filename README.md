@@ -655,3 +655,11 @@ WSL commit 25e8cdd confirmed LEAN INCOMPATIBLE EDGES CHECK OK (exit 0, warnings 
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN AUXILIARY ATOM CHECK OK"
 ```
+
+### Actual symbolic OR supports
+
+WSL commit 56b7110 confirmed LEAN AUXILIARY ATOM CHECK OK (exit 0; warnings only). Added symbolicSupport (well-founded recursion over wire indices), actual_opnds, real_or_expandable, symbolic_effective, symbolic_leaf_le and symbolic_leaf_kind. Expand actual OR gates into unions of their two operand supports, stop at input/AND atoms; prove agreement with effectiveSingletons. These new theorems have not been compiled. Clean AND atoms have not yet been excluded from dirty OR cones or operands of AND gates; the top-form/cone arguments, full auxiliary partition and per-component budget constraints remain to be formalized. No SAT files or checkpoints changed.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN SYMBOLIC SUPPORT CHECK OK"
+```
