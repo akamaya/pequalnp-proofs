@@ -1079,3 +1079,140 @@ theorem circuit_component_labels {n : Nat} (G : SimpleGraph (Fin n))
   simpa only [dirtyOrPrefix, PEqualNP.TopForm.orN, PEqualNP.TopForm.gatesWhere] using h
 
 end L2260FirstMerge
+
+/-! ## Incompatible edge cuts for the actual circuit
+
+The component partition here only needs locality of the effective
+singleton sets. The complete auxiliary-atom partition used in the
+strong SAT encoding is a separate, stronger construction.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+attribute [local instance] gateOpDecEq
+
+def GateCross {n : Nat} (C : Circuit) (j : Nat) (u v : Fin n) : Prop :=
+  Opposite (finalSample C u v (PEqualNP.TopForm.opnd C j 0))
+    (finalSample C u v (PEqualNP.TopForm.opnd C j 1))
+
+theorem edge_has_gate_cross {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (u v : Fin n) (he : G.Adj u v) :
+    ∃ j < C.gates.length, (gateAt C j).op = GateOp.and ∧ GateCross C j u v := by
+  obtain ⟨j,hj,hop,a,b,hin,hcross⟩ := graph_edge_first_merge_indexed G C hmin u v he
+  refine ⟨j,hj,hop,?_⟩
+  simpa [GateCross, PEqualNP.TopForm.opnd, hin] using hcross
+
+theorem gate_cross_pair {n : Nat} (C : Circuit) (j : Nat) (u v : Fin n)
+    (h : GateCross C j u v) :
+    CrossPair (effectiveSingletons C (PEqualNP.TopForm.opnd C j 0))
+      (effectiveSingletons C (PEqualNP.TopForm.opnd C j 1)) u v := by
+  unfold GateCross Opposite at h
+  simp only [CrossPair, effectiveSingletons, Finset.mem_filter, Finset.mem_univ, true_and]
+  rcases h with h | h
+  · exact Or.inl ⟨h.1,h.2.2.2⟩
+  · exact Or.inr ⟨h.2.1,h.2.2.1⟩
+
+def SameBlockPair {α β : Type} (label : α → β) (u v x y : α) : Prop :=
+  (label u = label x ∧ label v = label y) ∨
+    (label u = label y ∧ label v = label x)
+
+theorem local_cross_same_pair {α β : Type} (label : α → β)
+    (A B : Finset α) (hA : SupportLocal label A) (hB : SupportLocal label B)
+    (u v x y : α) (he : CrossPair A B u v) (hf : CrossPair A B x y) :
+    SameBlockPair label u v x y := by
+  rcases he with ⟨hu,hv⟩ | ⟨hv,hu⟩ <;>
+    rcases hf with ⟨hx,hy⟩ | ⟨hy,hx⟩
+  · exact Or.inl ⟨hA u hu x hx,hB v hv y hy⟩
+  · exact Or.inr ⟨hA u hu y hy,hB v hv x hx⟩
+  · exact Or.inr ⟨hB u hu y hy,hA v hv x hx⟩
+  · exact Or.inl ⟨hB u hu x hx,hA v hv y hy⟩
+
+/-- Two edges crossing the same clean AND share an endpoint AND
+have the same unordered pair of component labels. -/
+theorem clean_cross_compatible {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (h4 : PEqualNP.TopForm.NoFourCycle G) (label : Fin n → Fin n)
+    (hl : ∀ w < n+C.gates.length, SupportLocal label (effectiveSingletons C w))
+    (j : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.and) (hc : PEqualNP.TopForm.BelowF G C j)
+    (u v x y : Fin n) (he : GateCross C j u v) (hf : GateCross C j x y) :
+    (u = x ∨ u = y ∨ v = x ∨ v = y) ∧ SameBlockPair label u v x y := by
+  have hmem : gateAt C j ∈ C.gates := by
+    obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj
+    have hat : gateAt C j = g := by
+      unfold gateAt
+      rw [hg, ← hpre]
+      exact split_getD pre post g _
+    rw [hat,hg]
+    simp
+  obtain ⟨a,b,hin⟩ := two_inputs (gateAt C j).inputs (hAO.2.2 _ hmem)
+  have ha : a < n+j := by
+    apply hAO.2.1 j hj a
+    rw [hin]
+    simp
+  have hb : b < n+j := by
+    apply hAO.2.1 j hj b
+    rw [hin]
+    simp
+  let A := effectiveSingletons (n := n) C a
+  let B := effectiveSingletons (n := n) C b
+  have he' : CrossPair A B u v := by
+    simpa [A,B,PEqualNP.TopForm.opnd,hin] using gate_cross_pair C j u v he
+  have hf' : CrossPair A B x y := by
+    simpa [A,B,PEqualNP.TopForm.opnd,hin] using gate_cross_pair C j x y hf
+  have hadj : ∀ s ∈ A, ∀ t ∈ B, G.Adj s t := by
+    intro s hs t ht
+    exact clean_effective_adj G C hAO j a b hj hop hin hc s t hs ht
+  exact ⟨cross_pairs_share_endpoint G h4 A B hadj u v x y he' hf',
+    local_cross_same_pair label A B (hl a (by omega)) (hl b (by omega)) u v x y he' hf'⟩
+
+/-- A clique of mutually incompatible edges, none of which can be
+crossed by a dirty AND, needs at least that many distinct clean ANDs.
+The edges are stored as ordered vertex pairs; the incompatibility
+hypothesis prohibits counting both orientations of one edge. -/
+theorem incompatible_edges_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C) (h4 : PEqualNP.TopForm.NoFourCycle G)
+    (label : Fin n → Fin n)
+    (hl : ∀ w < n+C.gates.length, SupportLocal label (effectiveSingletons C w))
+    (E : Finset (Fin n × Fin n))
+    (hE : ∀ e ∈ E, G.Adj e.1 e.2)
+    (hn : ∀ e ∈ E, ∀ j < C.gates.length, (gateAt C j).op = GateOp.and →
+        GateCross C j e.1 e.2 → PEqualNP.TopForm.BelowF G C j)
+    (hi : ∀ e ∈ E, ∀ f ∈ E, e ≠ f →
+      ¬ ((e.1 = f.1 ∨ e.1 = f.2 ∨ e.2 = f.1 ∨ e.2 = f.2) ∧
+        SameBlockPair label e.1 e.2 f.1 f.2)) :
+    E.card ≤ (PEqualNP.TopForm.tops G C).card := by
+  classical
+  have hex : ∀ e : E, ∃ j ∈ PEqualNP.TopForm.tops G C, GateCross C j e.val.1 e.val.2 := by
+    intro e
+    obtain ⟨j,hj,hop,hcross⟩ := edge_has_gate_cross G C hmin e.val.1 e.val.2 (hE e.val e.property)
+    have hc := hn e.val e.property j hj hop hcross
+    refine ⟨j,?_,hcross⟩
+    exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,hc⟩
+  let chooseGate : E → PEqualNP.TopForm.tops G C := fun e =>
+    ⟨Classical.choose (hex e),(Classical.choose_spec (hex e)).1⟩
+  have hg (e : E) : GateCross C (chooseGate e).val e.val.1 e.val.2 :=
+    (Classical.choose_spec (hex e)).2
+  apply Finset.card_le_card_of_injective chooseGate
+  intro e f h
+  apply Subtype.ext
+  by_contra hne
+  have hval : (chooseGate e).val = (chooseGate f).val := congrArg Subtype.val h
+  have htop : (chooseGate e).val ∈ PEqualNP.TopForm.tops G C := (chooseGate e).property
+  have ht : (chooseGate e).val < C.gates.length ∧
+      (gateAt C (chooseGate e).val).op = GateOp.and ∧
+      PEqualNP.TopForm.BelowF G C (chooseGate e).val := by
+    obtain ⟨hr,hop,hc⟩ := Finset.mem_filter.mp htop
+    exact ⟨Finset.mem_range.mp hr,hop,hc⟩
+  have hf : GateCross C (chooseGate e).val f.val.1 f.val.2 := hval.symm ▸ hg f
+  exact hi e.val e.property f.val f.property hne
+    (clean_cross_compatible G C hmin.1 h4 label hl _ ht.1 ht.2.1 ht.2.2
+      e.val.1 e.val.2 f.val.1 f.val.2 (hg e) hf)
+
+end L2260FirstMerge
