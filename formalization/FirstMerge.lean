@@ -7731,7 +7731,9 @@ theorem shared_free_junk_cost {n : Nat} (G : SimpleGraph (Fin n))
   rw [hcard,Finset.card_insert_of_notMem hc] at h
   have hor := Finset.card_le_card (local_dirty_or_subset G C
     ((atomUniverse G C).filter fun a => l a ∈ insert c R))
-  refine ⟨by omega,?_⟩
+  refine ⟨?_,?_⟩
+  · change n+1 ≤ R.card+(PEqualNP.TopForm.orN G C).card
+    omega
   let V := atomClass (atomUniverse G C) l c
   have hia : n+i ∈ localFreeAtoms G C V := by
     apply mem_local_free_of_raw_or_empty G C V
@@ -7751,7 +7753,10 @@ theorem shared_free_junk_cost {n : Nat} (G : SimpleGraph (Fin n))
     · exact hia
     · exact hja
   have hp := Finset.card_le_card hpair
-  rw [Finset.card_insert_of_notMem (by simp [hab]),Finset.card_singleton] at hp
+  have hnot : n+i ∉ ({n+j} : Finset Nat) := by
+    intro hm
+    exact hab (Finset.mem_singleton.mp hm)
+  rw [Finset.card_insert_of_notMem hnot,Finset.card_singleton] at hp
   have hbudget := component_or_budget G C l hb c
   have hpos : 0 < (localDirtyOrGates G C V).card := by
     change (localFreeAtoms G C V).card ≤ 1+(localDirtyOrGates G C V).card at hbudget
@@ -7782,8 +7787,8 @@ theorem clean_and_grouped_center {n : Nat} (G : SimpleGraph (Fin n))
       (c = x ∨ c = y) ∧ blockPairKey l u v = blockPairKey l x y := by
   have hm := Finset.mem_filter.mp hj
   have hj' := Finset.mem_range.mp hm.1
-  let A := effectiveSingletons C (PEqualNP.TopForm.opnd C j 0)
-  let B := effectiveSingletons C (PEqualNP.TopForm.opnd C j 1)
+  let A := effectiveSingletons (n := n) C (PEqualNP.TopForm.opnd C j 0)
+  let B := effectiveSingletons (n := n) C (PEqualNP.TopForm.opnd C j 1)
   have hs : A.card ≤ 1 ∨ B.card ≤ 1 :=
     clean_effective_star G C hAO h4 j _ _ hj' hm.2.1
       (actual_opnds C hAO j hj').1 hm.2.2
