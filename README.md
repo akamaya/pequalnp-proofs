@@ -589,3 +589,21 @@ git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-proof
 ```
 
 SAT固定分割ベンチマーク実行中につきSATコードとcheckpointは変更しない。main変更なし。
+
+### Fixed strong benchmark WSL result
+
+k5/r8, 128 stratified partitions (32 each for b=3,4,5,6), seed2260, 8 workers, 2 seconds/cube, cadical195. Self-tests passed. Baseline: 56 UNSAT/72 TIMEOUT, 30.631s; strong: 128 UNSAT/0 TIMEOUT, 5.646s. Paired: 72 TIMEOUT->UNSAT, 56 UNSAT->UNSAT. By blocks baseline 23/0/8/25 UNSAT, strong 32 each. Wall ratio 5.43x; sample is stratified, not a representative throughput guarantee for all 57080 partitions.
+
+New fixed_sweep_v1 calls the same tested strong run() for every candidate, separate SQLite checkpoint, source fingerprint, 10s progress, dispatch deadline (active bounded solves finish before exit). No benchmark JSON import (recheck all partitions). No existing source or checkpoint modification. Full sweep wrapper not yet tested in WSL.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_fixed_sweep_v1.py --top-count 5 --or-count 8 --jobs 8 --seconds 2 --wall-seconds 1800 --solver cadical195
+```
+
+Lean log repeated the successful 06bedb1 version. Indexed bridge at f5e6318 or later is still awaiting verification. Run after updating:
+
+```bash
+cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN INDEXED FIRST MERGE CHECK OK"
+```
+
+Provisional 95/100 unchanged until an entire case is excluded. Lean reduction and UNSAT certificates remain incomplete; no six-hour completion guarantee.
