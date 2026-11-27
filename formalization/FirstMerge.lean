@@ -3022,3 +3022,129 @@ theorem and_operand_raw_cap {n : Nat} (G : SimpleGraph (Fin n))
     (and_operand_support_subset G C hAO htop j hj hop w hr) a ha haraw
 
 end L2260FirstMerge
+
+
+/-! ## Normalization: output and AND operands
+
+The output is an OR of clean AND values; every AND operand is an
+OR of original input values and strictly earlier junk AND values.
+This gives the semantic skeleton before numbering the two junk
+atoms, ordering the top gates, and encoding the physical OR DAG.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+attribute [local instance] gateOpDecEq
+
+theorem actual_output_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (u v : Fin n) (he : G.Adj u v) :
+    C.output < n+C.gates.length := by
+  have ht : C.eval (List.ofFn (pairInput u v)) = true :=
+    (congrFun hmin.2.1 (pairInput u v)).trans (graph_pair_true G u v he)
+  have hlen : (C.wires (List.ofFn (pairInput u v))).length = n+C.gates.length := by
+    change (C.gates.foldl gateStep (List.ofFn (pairInput u v))).length = _
+    rw [fold_length]
+    simp
+  by_contra h
+  have hn : ¬ C.output < (C.wires (List.ofFn (pairInput u v))).length := by
+    rw [hlen]
+    exact h
+  simp [Circuit.eval,List.getD_eq_getElem?_getD,hn] at ht
+
+theorem output_leaf_below {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (a : Nat) (ha : a ∈ symbolicSupport n C C.output) :
+    ∀ x : Fin n → Bool, wireVal n C a x = true → graphFun G ∅ x = true := by
+  intro x hx
+  have ho := (symbolic_eval C hmin.1 x C.output).mpr ⟨a,ha,hx⟩
+  change C.eval (List.ofFn x) = true at ho
+  have he : C.eval (List.ofFn x) = graphFun G ∅ x := congrFun hmin.2.1 x
+  rw [← he]
+  exact ho
+
+theorem output_support_tops {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (u v : Fin n) (he : G.Adj u v) :
+    symbolicSupport n C C.output ⊆
+      (PEqualNP.TopForm.tops G C).image (fun j => n+j) := by
+  intro a ha
+  have hc := output_leaf_below G C hmin a ha
+  rcases symbolic_leaf_kind C hmin.1 C.output
+      (actual_output_bound G C hmin u v he) a ha with hr | ⟨j,hj,haj,hop⟩
+  · have hm : a ∈ atomUniverse G C :=
+      Finset.mem_union.mpr (Or.inl (Finset.mem_range.mpr hr))
+    obtain ⟨x,hx,hf⟩ := atom_dirty_witness G C a hm
+    have ht := hc x hx
+    rw [hf] at ht
+    contradiction
+  · have hb : PEqualNP.TopForm.BelowF G C j := by
+      intro x hx
+      apply hc x
+      rw [haj]
+      exact hx
+    exact Finset.mem_image.mpr ⟨j,Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,hb⟩,haj.symm⟩
+
+/-- Taking the OR over *all* clean ANDs preserves the graph function,
+even if an unused clean AND does not belong to the output closure. -/
+theorem graph_eq_or_of_tops {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (u v : Fin n) (he : G.Adj u v) (x : Fin n → Bool) :
+    graphFun G ∅ x = true ↔
+      ∃ j ∈ PEqualNP.TopForm.tops G C, gateVal n C j x = true := by
+  constructor
+  · intro hx
+    have hf : C.eval (List.ofFn x) = graphFun G ∅ x := congrFun hmin.2.1 x
+    have ho : wireVal n C C.output x = true := hf.trans hx
+    obtain ⟨a,ha,ht⟩ := (symbolic_eval C hmin.1 x C.output).mp ho
+    obtain ⟨j,hj,haj⟩ := Finset.mem_image.mp (output_support_tops G C hmin u v he ha)
+    refine ⟨j,hj,?_⟩
+    rw [← haj] at ht
+    exact ht
+  · rintro ⟨j,hj,ht⟩
+    exact (Finset.mem_filter.mp hj).2.2 x ht
+
+/-- The exact shape of an atom in an actual AND operand. In the junk
+case its gate index precedes that of the consumer AND. -/
+theorem and_operand_leaf_earlier_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (w : Nat) (hw : w ∈ (gateAt C j).inputs)
+    (a : Nat) (ha : a ∈ symbolicSupport n C w) :
+    a < n ∨ ∃ i ∈ PEqualNP.TopForm.junk G C, i < j ∧ a = n+i := by
+  have hm := and_operand_support_subset G C hAO htop j hj hop w hw ha
+  have hlt := hAO.2.1 j hj w hw
+  have hle := symbolic_leaf_le n C w a ha
+  rcases Finset.mem_union.mp hm with hr | hh
+  · exact Or.inl (Finset.mem_range.mp hr)
+  · obtain ⟨i,hi,he⟩ := Finset.mem_image.mp hh
+    change n+i = a at he
+    exact Or.inr ⟨i,hi,by omega,he.symm⟩
+
+/-- The two symbolic operand sets suffice to evaluate an AND on every
+Boolean input. The preceding theorem justifies using only earlier
+junk values, rather than values of other clean ANDs. -/
+theorem normalized_and_eval {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (j : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (x : Fin n → Bool) :
+    gateVal n C j x = true ↔
+      (∃ a ∈ symbolicSupport n C (PEqualNP.TopForm.opnd C j 0),
+        wireVal n C a x = true) ∧
+      (∃ b ∈ symbolicSupport n C (PEqualNP.TopForm.opnd C j 1),
+        wireVal n C b x = true) := by
+  have hv := gateVal_and_eq C hAO.2.1 j _ _ hj hop (actual_opnds C hAO j hj).1 x
+  change gateVal n C j x =
+    (wireVal n C (PEqualNP.TopForm.opnd C j 0) x &&
+     wireVal n C (PEqualNP.TopForm.opnd C j 1) x) at hv
+  rw [hv,Bool.and_eq_true_iff,symbolic_eval C hAO x _,symbolic_eval C hAO x _]
+
+end L2260FirstMerge
