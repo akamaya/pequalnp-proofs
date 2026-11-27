@@ -291,7 +291,7 @@ private theorem pair_inputs_safe {n : Nat} (u v : Fin n) :
   intro i
   by_cases hi : i < n
   · simp [wireSample, PairOnly, List.getD_eq_getElem?_getD,
-      hi, pairInput]
+      hi, pairInput] <;> aesop
   · simp [wireSample, PairOnly, List.getD_eq_getElem?_getD,
       hi]
 
