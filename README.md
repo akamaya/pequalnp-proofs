@@ -679,3 +679,13 @@ WSL commit a003bbd confirmed LEAN JUNK OPERAND CHECK OK (exit 0; warnings only).
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN ATOM UNIVERSE CHECK OK"
 ```
+
+### Cached fixed-partition range sweep
+
+WSL fixed-strong k5/r8 first 1801.306s run: 39065 UNSAT, 270 TIMEOUT, 17745 not attempted, 18015 remaining of 57080. Added pnp_graph_partition_fast_v1.py: cache immutable common CNF per worker and exact maximum OR count; use fresh solver directly in each worker, with conflict-budget time checks rather than a nested subprocess. Fixed partition constraints support inactive prefix padding and a selected set of exact active OR counts. Range UNSAT is recorded separately for each requested exact count; TIMEOUT is not an exclusion. Original exact checkpoint fingerprints are validated before read-only import into new per-r SQLite files. Existing SAT sources/checkpoints unchanged. No Lean verification; PySAT unavailable in assistant runtime, so new self-test and matched benchmark must run on WSL. Range speed is not assumed to improve before measurement.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && .venv-sat/bin/python -u pnp_graph_partition_fast_v1.py --self-test && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_fast_v1.py --top-count 5 --or-min 8 --or-max 10 --jobs 8 --seconds 2 --benchmark 12 --solver cadical195
+```
+
+Compare old-exact, fast-exact, fast-range by exact_unsat_per_second, including timeout counts. If range is faster, rerun with --wall-seconds 1800 instead of --benchmark 12. If only cached exact is faster, use --or-min equal to --or-max for each exact case. Conflict-budget time limits are approximate; a single solver chunk can overrun. 
