@@ -2135,3 +2135,306 @@ theorem auxiliary_prefix_labels {n : Nat} (G : SimpleGraph (Fin n))
           · omega
 
 end L2260FirstMerge
+
+/-! ## Local component budgets
+
+A class-closed subset contains every atom sharing a label with any of
+its members. When two classes merge, a subset closed under the new
+labels was also closed under the old labels. The merge costs one
+unit inside that subset only if the merged class belongs to it.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+attribute [local instance] gateOpDecEq
+
+def ClassClosed (U V : Finset Nat) (l : Nat → Nat) : Prop :=
+  ∀ x ∈ V, ∀ y ∈ U, l x = l y → y ∈ V
+
+theorem closed_before (U V : Finset Nat) (l l' : Nat → Nat)
+    (hp : PreservesLabels l l') (hc : ClassClosed U V l') :
+    ClassClosed U V l := by
+  intro x hx y hy he
+  exact hc x hx y hy (hp x y he)
+
+theorem local_rank_merge (U V : Finset Nat) (l : Nat → Nat) (a b : Nat)
+    (ha : a ∈ U) (hc : ClassClosed U V (mergeLabel l (l a) (l b))) :
+    atomRank V l ≤ atomRank V (mergeLabel l (l a) (l b)) +
+      (if a ∈ V then 1 else 0) := by
+  by_cases h : a ∈ V
+  · rw [if_pos h]
+    exact atom_rank_merge V l (l a) (l b)
+  · rw [if_neg h,Nat.add_zero]
+    have he : ∀ x ∈ V, mergeLabel l (l a) (l b) x = l x := by
+      intro x hx
+      have hn : l x ≠ l b := by
+        intro hb
+        have heq : mergeLabel l (l a) (l b) x =
+            mergeLabel l (l a) (l b) a := by
+          unfold mergeLabel
+          rw [hb,if_pos rfl]
+          split <;> rfl
+        exact h (hc x hx a ha heq)
+      simp [mergeLabel,hn]
+    have hi : V.image (mergeLabel l (l a) (l b)) = V.image l := by
+      ext z
+      constructor
+      · intro hz
+        obtain ⟨x,hx,hz⟩ := Finset.mem_image.mp hz
+        exact Finset.mem_image.mpr ⟨x,hx,(he x hx).symm.trans hz⟩
+      · intro hz
+        obtain ⟨x,hx,hz⟩ := Finset.mem_image.mp hz
+        exact Finset.mem_image.mpr ⟨x,hx,(he x hx).trans hz⟩
+    unfold atomRank
+    rw [hi]
+
+/-- The local cost charges an OR only to subsets containing its whole
+symbolic support, and a bearing junk only to subsets containing it. -/
+def LocalAuxCharge {n : Nat} (G : SimpleGraph (Fin n)) [DecidableRel G.Adj]
+    (C : Circuit) (V : Finset Nat) (j : Nat) : Prop :=
+  ((gateAt C j).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C j ∧
+    symbolicSupport n C (n+j) ⊆ V) ∨
+  (j ∈ PEqualNP.TopForm.junk G C ∧
+    (effectiveSingletons (n := n) C (n+j)).Nonempty ∧ n+j ∈ V)
+
+instance {n : Nat} (G : SimpleGraph (Fin n)) [DecidableRel G.Adj]
+    (C : Circuit) (V : Finset Nat) (j : Nat) : Decidable (LocalAuxCharge G C V j) := by
+  unfold LocalAuxCharge
+  infer_instance
+
+def localAuxCost {n : Nat} (G : SimpleGraph (Fin n)) [DecidableRel G.Adj]
+    (C : Circuit) (V : Finset Nat) (j : Nat) : Nat :=
+  ((Finset.range j).filter (LocalAuxCharge G C V)).card
+
+private theorem local_cost_succ {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) (j : Nat) :
+    localAuxCost G C V (j+1) =
+      localAuxCost G C V j + (if LocalAuxCharge G C V j then 1 else 0) := by
+  classical
+  by_cases h : LocalAuxCharge G C V j
+  · have he : ((insert j (Finset.range j)).filter (LocalAuxCharge G C V)) =
+        insert j ((Finset.range j).filter (LocalAuxCharge G C V)) := by
+      ext i
+      simp only [Finset.mem_filter, Finset.mem_insert]
+      constructor
+      · rintro ⟨hi,hp⟩
+        rcases hi with hi | hi
+        · exact Or.inl hi
+        · exact Or.inr ⟨hi,hp⟩
+      · rintro (hi | ⟨hi,hp⟩)
+        · subst i
+          exact ⟨Or.inl rfl,h⟩
+        · exact ⟨Or.inr hi,hp⟩
+    unfold localAuxCost
+    rw [Finset.range_add_one,he,Finset.card_insert_of_notMem]
+    · simp only [if_pos h]
+    · intro hm
+      exact Finset.notMem_range_self ((Finset.mem_filter.mp hm).1)
+  · have he : ((insert j (Finset.range j)).filter (LocalAuxCharge G C V)) =
+        ((Finset.range j).filter (LocalAuxCharge G C V)) := by
+      ext i
+      simp only [Finset.mem_filter,Finset.mem_insert]
+      constructor
+      · rintro ⟨hi,hp⟩
+        rcases hi with hi | hi
+        · subst i
+          exact False.elim (h hp)
+        · exact ⟨hi,hp⟩
+      · rintro ⟨hi,hp⟩
+        exact ⟨Or.inr hi,hp⟩
+    unfold localAuxCost
+    rw [Finset.range_add_one,he]
+    simp only [if_neg h,Nat.add_zero]
+
+def LocalBudget {n : Nat} (G : SimpleGraph (Fin n)) [DecidableRel G.Adj]
+    (C : Circuit) (j : Nat) (l : Nat → Nat) : Prop :=
+  ∀ V : Finset Nat, V ⊆ atomUniverse G C → ClassClosed (atomUniverse G C) V l →
+    V.card ≤ atomRank V l + localAuxCost G C V j
+
+theorem budget_skip {n : Nat} (G : SimpleGraph (Fin n)) [DecidableRel G.Adj]
+    (C : Circuit) (j : Nat) (l : Nat → Nat) (hb : LocalBudget G C j l) :
+    LocalBudget G C (j+1) l := by
+  intro V hV hc
+  have h := hb V hV hc
+  rw [local_cost_succ]
+  omega
+
+theorem budget_merge {n : Nat} (G : SimpleGraph (Fin n)) [DecidableRel G.Adj]
+    (C : Circuit) (j : Nat) (l : Nat → Nat) (a b : Nat)
+    (ha : a ∈ atomUniverse G C) (hb : LocalBudget G C j l)
+    (hcharge : ∀ V : Finset Nat, V ⊆ atomUniverse G C →
+      ClassClosed (atomUniverse G C) V (mergeLabel l (l a) (l b)) →
+      a ∈ V → LocalAuxCharge G C V j) :
+    LocalBudget G C (j+1) (mergeLabel l (l a) (l b)) := by
+  intro V hV hc
+  have hp : PreservesLabels l (mergeLabel l (l a) (l b)) :=
+    fun x y h => merge_preserves_equal l _ _ x y h
+  have hprev := hb V hV (closed_before _ _ _ _ hp hc)
+  have hr := local_rank_merge (atomUniverse G C) V l a b ha hc
+  rw [local_cost_succ]
+  by_cases h : a ∈ V
+  · rw [if_pos h] at hr
+    rw [if_pos (hcharge V hV hc h)]
+    omega
+  · rw [if_neg h] at hr
+    omega
+
+theorem merge_union_explicit (l : Nat → Nat) (A B : Finset Nat)
+    (a b : Nat) (ha : a ∈ A) (hb : b ∈ B)
+    (hA : SupportLocal l A) (hB : SupportLocal l B) :
+    ∀ x ∈ A ∪ B, mergeLabel l (l a) (l b) x = l a := by
+  intro x hx
+  rcases Finset.mem_union.mp hx with hx | hx
+  · unfold mergeLabel
+    rw [hA x hx a ha]
+    split <;> rfl
+  · unfold mergeLabel
+    rw [hB x hx b hb]
+    simp
+
+/-- The actual prefix construction simultaneously satisfies all
+closed-subset budgets. This is stronger than a global class count. -/
+theorem auxiliary_local_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) (j : Nat) (hj : j ≤ C.gates.length) :
+    ∃ l : Nat → Nat, AuxInvariant G C j l ∧ LocalBudget G C j l := by
+  classical
+  induction j with
+  | zero =>
+      refine ⟨id,⟨?_,?_⟩,?_⟩
+      · intro w hw _
+        rw [symbolic_atom n C w (by intro h; have hh := h.1; omega)]
+        exact local_singleton id w
+      · intro a ha _ u hu
+        have halt : a < n := by omega
+        let v : Fin n := ⟨a,halt⟩
+        have he : effectiveSingletons (n := n) C a = {v} := effective_input C v
+        rw [he] at hu
+        have huv := Finset.mem_singleton.mp hu
+        subst u
+        rfl
+      · intro V _ _
+        simp [atomRank,localAuxCost]
+  | succ j ih =>
+      have hj' : j < C.gates.length := by omega
+      obtain ⟨l,hi,hbudget⟩ := ih (by omega)
+      obtain ⟨hin,ha,hb⟩ := actual_opnds C hAO j hj'
+      let a := PEqualNP.TopForm.opnd C j 0
+      let b := PEqualNP.TopForm.opnd C j 1
+      have ha' : a < n+j := ha
+      have hb' : b < n+j := hb
+      have hin' : (gateAt C j).inputs = [a,b] := hin
+      have hrA : a ∈ (gateAt C j).inputs := by rw [hin']; simp
+      have hrB : b ∈ (gateAt C j).inputs := by rw [hin']; simp
+      rcases hAO.1 _ (actual_gate_mem C j hj') with hop | hop
+      · have hs : symbolicSupport n C (n+j) = {n+j} := by
+          apply symbolic_atom
+          intro he
+          have h := he.2.2.1
+          have hjsub : n+j-n = j := by omega
+          rw [hjsub,hop] at h
+          contradiction
+        have hA := and_operand_support_subset G C hAO htop j hj' hop a hrA
+        have hloc : SupportLocal (fun u : Fin n => l u.val) (effectiveSingletons C (n+j)) := by
+          rw [effective_and C hAO.2.1 j a b hj' hop hin']
+          exact local_inter _ _ _ (aux_effective_local G C hAO j l hi a ha' hA)
+        by_cases hm : n+j ∈ atomUniverse G C
+        · have hjunk : j ∈ PEqualNP.TopForm.junk G C := by
+            rcases Finset.mem_union.mp hm with hraw | hjunk
+            · have h := Finset.mem_range.mp hraw
+              omega
+            · obtain ⟨k,hk,he⟩ := Finset.mem_image.mp hjunk
+              change n+k = n+j at he
+              have he' : k = j := by omega
+              simpa [he'] using hk
+          by_cases hne : (effectiveSingletons (n := n) C (n+j)).Nonempty
+          · obtain ⟨u,hu⟩ := hne
+            let l' := mergeLabel l (l (n+j)) (l u.val)
+            have hp : PreservesLabels l l' := fun x y h => merge_preserves_equal l _ _ x y h
+            have hlink : ∀ v ∈ effectiveSingletons (n := n) C (n+j), l' v.val = l' (n+j) := by
+              intro v hv
+              have he : l v.val = l u.val := hloc v hv u hu
+              dsimp [l',mergeLabel]
+              rw [he,if_pos rfl]
+              split <;> rfl
+            refine ⟨l',aux_extend G C j l l' hi hp ?_ (fun _ => hlink),?_⟩
+            · intro _
+              rw [hs]
+              exact local_singleton l' _
+            · apply budget_merge G C j l (n+j) u.val hm hbudget
+              intro V _ _ hV
+              exact Or.inr ⟨hjunk,⟨u,hu⟩,hV⟩
+          · refine ⟨l,aux_extend G C j l l hi (fun _ _ h => h) ?_ ?_,
+                budget_skip G C j l hbudget⟩
+            · intro _
+              rw [hs]
+              exact local_singleton l _
+            · intro _ u hu
+              exact False.elim (hne ⟨u,hu⟩)
+        · refine ⟨l,aux_extend G C j l l hi (fun _ _ h => h) ?_ ?_,
+              budget_skip G C j l hbudget⟩
+          · intro _
+            rw [hs]
+            exact local_singleton l _
+          · intro h
+            exact False.elim (hm h)
+      · have hnot : n+j ∉ atomUniverse G C := by
+          intro hm
+          rcases Finset.mem_union.mp hm with hraw | hjunk
+          · have h := Finset.mem_range.mp hraw
+            omega
+          · obtain ⟨k,hk,he⟩ := Finset.mem_image.mp hjunk
+            change n+k = n+j at he
+            have he' : k = j := by omega
+            subst k
+            have ho := ((Finset.mem_filter.mp hk).2 :
+              PEqualNP.CleanedNonEdge.IsDirtyAnd n G C j).1
+            rw [hop] at ho
+            contradiction
+        by_cases hs : symbolicSupport n C (n+j) ⊆ atomUniverse G C
+        · have hu : symbolicSupport n C (n+j) = symbolicSupport n C a ∪ symbolicSupport n C b := by
+            have he := symbolic_expand n C (n+j) (real_or_expandable C hAO j hj' hop)
+            simpa [a,b] using he
+          have hA : symbolicSupport n C a ⊆ atomUniverse G C := by
+            intro x hx
+            apply hs
+            rw [hu]
+            exact Finset.mem_union.mpr (Or.inl hx)
+          have hB : symbolicSupport n C b ⊆ atomUniverse G C := by
+            intro x hx
+            apply hs
+            rw [hu]
+            exact Finset.mem_union.mpr (Or.inr hx)
+          obtain ⟨x,hx⟩ := symbolic_nonempty n C a
+          obtain ⟨y,hy⟩ := symbolic_nonempty n C b
+          let l' := mergeLabel l (l x) (l y)
+          have hp : PreservesLabels l l' := fun p q h => merge_preserves_equal l _ _ p q h
+          have hv : ∀ z ∈ symbolicSupport n C (n+j), l' z = l x := by
+            rw [hu]
+            exact merge_union_explicit l _ _ x y hx hy (hi.1 a ha' hA) (hi.1 b hb' hB)
+          have hxroot : x ∈ symbolicSupport n C (n+j) := by
+            rw [hu]
+            exact Finset.mem_union.mpr (Or.inl hx)
+          refine ⟨l',aux_extend G C j l l' hi hp ?_ ?_,?_⟩
+          · intro _ p hp' q hq'
+            exact (hv p hp').trans (hv q hq').symm
+          · intro h
+            exact False.elim (hnot h)
+          · apply budget_merge G C j l x y (hA hx) hbudget
+            intro V _ hc hxV
+            have hd := raw_junk_or_dirty G C hAO j hj' hop hs
+            have hdirty := (Finset.mem_filter.mp hd).2.2
+            refine Or.inl ⟨hop,hdirty,?_⟩
+            intro z hz
+            exact hc x hxV z (hs hz) ((hv x hxroot).trans (hv z hz).symm)
+        · refine ⟨l,aux_extend G C j l l hi (fun _ _ h => h) ?_ ?_,
+              budget_skip G C j l hbudget⟩
+          · intro h
+            exact False.elim (hs h)
+          · intro h
+            exact False.elim (hnot h)
+
+end L2260FirstMerge
