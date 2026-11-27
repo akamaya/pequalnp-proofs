@@ -7398,3 +7398,216 @@ theorem internal_or_mask_strict {n : Nat} (G : SimpleGraph (Fin n))
     (numbered_atom_range G C _ hsI) (numbered_atom_range G C _ hsJ)
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: partition labels and exact-active support caps
+
+The existing auxiliary labeling is shared by every symbolic and
+effective support. These lemmas transfer the invariant to the SAT
+support numbering and the linked-engine OR implications.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+noncomputable def wireClass {n : Nat} (C : Circuit) (l : Nat → Nat)
+    (w : Nat) : Nat :=
+  l (Classical.choose (symbolic_nonempty n C w))
+
+theorem wire_class_of_atom {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C)
+    (a : Nat) (ha : a ∈ symbolicSupport n C w) :
+    l a = wireClass (n := n) C l w := by
+  unfold wireClass
+  exact hi.1 w hw hs a ha _ (Classical.choose_spec (symbolic_nonempty n C w))
+
+theorem wire_class_or_link {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (l : Nat → Nat) (hi : AuxInvariant G C C.gates.length l)
+    (j : Nat) (hj : j ∈ internalOrGates G C) (w : Nat)
+    (hr : w ∈ (gateAt C j).inputs) :
+    wireClass (n := n) C l w = wireClass (n := n) C l (n+j) := by
+  obtain ⟨hj',hop,hs⟩ := internal_or_mem G C j hj
+  have hw := hAO.2.1 j hj' w hr
+  have hsub := or_reader_support_subset C hAO j w hj' hop hr
+  obtain ⟨a,ha⟩ := symbolic_nonempty n C w
+  exact (wire_class_of_atom G C l hi w (by omega) (hsub.trans hs) a ha).symm.trans
+    (wire_class_of_atom G C l hi (n+j) (by omega) hs a (hsub ha))
+
+noncomputable def numberedAtomLabel {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat) (z : Nat) : Nat := by
+  classical
+  exact if h : ∃ a ∈ atomUniverse G C, sourceCode G C a = z
+    then l (Classical.choose h) else 0
+
+theorem numbered_atom_label_correct {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (a : Nat) (ha : a ∈ atomUniverse G C) :
+    numberedAtomLabel G C l (sourceCode G C a) = l a := by
+  classical
+  unfold numberedAtomLabel
+  have hex : ∃ b ∈ atomUniverse G C, sourceCode G C b = sourceCode G C a :=
+    ⟨a,ha,rfl⟩
+  rw [dif_pos hex]
+  obtain ⟨hb,he⟩ := Classical.choose_spec hex
+  have h := source_code_injective G C (Classical.choose hex) a
+    (Finset.mem_union.mpr (Or.inl hb)) (Finset.mem_union.mpr (Or.inl ha)) he
+  rw [h]
+
+theorem numbered_support_label {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C)
+    (z : Nat) (hz : z ∈ numberedSupport G C w) :
+    numberedAtomLabel G C l z = wireClass (n := n) C l w := by
+  obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+  rw [← he,numbered_atom_label_correct G C l a (hs ha)]
+  exact wire_class_of_atom G C l hi w hw hs a ha
+
+theorem numbered_support_partition_local {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) :
+    SupportLocal (numberedAtomLabel G C l) (numberedSupport G C w) := by
+  intro a ha b hb
+  exact (numbered_support_label G C l hi w hw hs a ha).trans
+    (numbered_support_label G C l hi w hw hs b hb).symm
+
+theorem numbered_support_exact_cap {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (l : Nat → Nat) (hi : AuxInvariant G C C.gates.length l)
+    (hb : LocalBudget G C C.gates.length l)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C)
+    (a : Nat) (ha : a ∈ numberedSupport G C w) (haraw : a < n) :
+    (numberedSupport G C w).card ≤
+      (rawClass n l (l a)).card +
+        ((internalOrGates G C).card - (n-((Finset.range n).image l).card)) := by
+  have hau : a ∈ atomUniverse G C :=
+    Finset.mem_union.mpr (Or.inl (Finset.mem_range.mpr haraw))
+  have ha' := (numbered_support_mem_iff G C w a hs hau).mp
+    (by rwa [source_code_raw G C a haraw])
+  have hcap := symbolic_support_raw_cap G C hmin.1 l hi hb w hw hs a ha' haraw
+  have hrank := raw_rank_or_budget G C l hb
+  have he := internal_or_eq_orN G C hmin htop
+  rw [← he] at hcap hrank
+  have hr : ((Finset.range n).image l).card ≤ n := by
+    have h : ((Finset.range n).image l).card ≤ (Finset.range n).card :=
+      Finset.card_image_le
+    simpa using h
+  rw [numbered_support_card G C w hs]
+  omega
+
+/-- The short clauses of compact_cap are the only possible
+violations of the guarded cardinality bound, with two junk bits. -/
+theorem compact_cap_violation_iff (q a j slack : Nat)
+    (ha : a ≤ q) (hp : 0 < a) (hj : j ≤ 2) :
+    q+slack < a+j ↔
+      (slack = 0 ∧ a = q ∧ 1 ≤ j) ∨
+      (slack ≤ 1 ∧ j = 2 ∧ max 1 (q-1+slack) ≤ a) := by
+  omega
+
+/-- Component costs can be read directly as counts of physical OR
+nodes bearing the chosen component label. -/
+theorem local_or_label_iff {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l) (c j : Nat) :
+    j ∈ localDirtyOrGates G C (atomClass (atomUniverse G C) l c) ↔
+      j ∈ internalOrGates G C ∧ wireClass (n := n) C l (n+j) = c := by
+  constructor
+  · intro hj
+    have hm := Finset.mem_filter.mp hj
+    have hsub : symbolicSupport n C (n+j) ⊆ atomUniverse G C :=
+      hm.2.2.2.trans (Finset.filter_subset _ _)
+    have hj' : j ∈ internalOrGates G C :=
+      Finset.mem_filter.mpr ⟨hm.1,hm.2.1,hm.2.2.1,hsub⟩
+    obtain ⟨a,ha⟩ := symbolic_nonempty n C (n+j)
+    have hc := (Finset.mem_filter.mp (hm.2.2.2 ha)).2
+    have hlt := Finset.mem_range.mp hm.1
+    exact ⟨hj',(wire_class_of_atom G C l hi _ (by omega) hsub a ha).symm.trans hc⟩
+  · rintro ⟨hj,hc⟩
+    have hm := Finset.mem_filter.mp (local_dirty_or_subset G C (atomUniverse G C) hj)
+    obtain ⟨hj',_,hs⟩ := internal_or_mem G C j hj
+    apply Finset.mem_filter.mpr
+    refine ⟨hm.1,hm.2.1,hm.2.2,?_⟩
+    intro a ha
+    exact Finset.mem_filter.mpr ⟨hs ha,
+      (wire_class_of_atom G C l hi _ (by omega) hs a ha).trans hc⟩
+
+def attachedFreeJunk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat) : Finset Nat :=
+  (PEqualNP.TopForm.junk G C).filter fun j =>
+    l (n+j) ∈ (Finset.range n).image l ∧
+      ¬ (effectiveSingletons (n := n) C (n+j)).Nonempty
+
+theorem attached_free_junk_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l) :
+    n+(attachedFreeJunk G C l).card ≤
+      ((Finset.range n).image l).card+(PEqualNP.TopForm.orN G C).card := by
+  classical
+  let R := (Finset.range n).image l
+  let V := (atomUniverse G C).filter fun a => l a ∈ R
+  let J := (attachedFreeJunk G C l).image (fun j => n+j)
+  have hV : V ⊆ atomUniverse G C := Finset.filter_subset _ _
+  have hc : ClassClosed (atomUniverse G C) V l := by
+    intro x hx y hy he
+    have h := (Finset.mem_filter.mp hx).2
+    exact Finset.mem_filter.mpr ⟨hy,he ▸ h⟩
+  have hraw : Finset.range n ⊆ localFreeAtoms G C V := by
+    intro a ha
+    have hu : a ∈ atomUniverse G C := Finset.mem_union.mpr (Or.inl ha)
+    have hR : l a ∈ R := Finset.mem_image.mpr ⟨a,ha,rfl⟩
+    exact mem_local_free_of_raw_or_empty G C V a
+      (Finset.mem_filter.mpr ⟨hu,hR⟩) (Or.inl (Finset.mem_range.mp ha))
+  have hJ : J ⊆ localFreeAtoms G C V := by
+    intro a ha
+    obtain ⟨j,hj,he⟩ := Finset.mem_image.mp ha
+    have hm := Finset.mem_filter.mp hj
+    rw [← he]
+    have hu : n+j ∈ atomUniverse G C :=
+      Finset.mem_union.mpr (Or.inr (Finset.mem_image.mpr ⟨j,hm.1,rfl⟩))
+    exact mem_local_free_of_raw_or_empty G C V (n+j)
+      (Finset.mem_filter.mpr ⟨hu,hm.2.1⟩) (Or.inr hm.2.2)
+  have hd : Disjoint (Finset.range n) J := by
+    apply Finset.disjoint_left.mpr
+    intro a ha hj
+    obtain ⟨j,_,he⟩ := Finset.mem_image.mp hj
+    have hlt := Finset.mem_range.mp ha
+    change n+j = a at he
+    omega
+  have hJC : J.card = (attachedFreeJunk G C l).card := by
+    apply Finset.card_image_of_injective
+    intro a b he
+    change n+a = n+b at he
+    omega
+  have hsub : Finset.range n ∪ J ⊆ localFreeAtoms G C V := by
+    intro a ha
+    rcases Finset.mem_union.mp ha with ha | ha
+    · exact hraw ha
+    · exact hJ ha
+  have hcard := Finset.card_le_card hsub
+  rw [Finset.card_union_of_disjoint hd,Finset.card_range,hJC] at hcard
+  have hrank : atomRank V l ≤ R.card := by
+    apply Finset.card_le_card
+    intro z hz
+    obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+    rw [← he]
+    exact (Finset.mem_filter.mp ha).2
+  have hor := Finset.card_le_card (local_dirty_or_subset G C V)
+  have h := closed_subset_or_budget G C l hb V hV hc
+  change n+(attachedFreeJunk G C l).card ≤ R.card+(PEqualNP.TopForm.orN G C).card
+  omega
+
+end L2260FirstMerge
