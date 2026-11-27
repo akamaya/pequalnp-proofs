@@ -8155,3 +8155,254 @@ theorem projected_direct_clause {γ α : Type} [DecidableEq γ] [DecidableEq α]
   omega
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: canonical partition labels
+
+Use the first atom of each class as its representative, and rank
+these representatives. Raw classes come first, then the at most two
+classes having only junk atoms. This is independent of the
+particular labels produced by the auxiliary merge construction.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+noncomputable def firstRepresentative (U : Finset Nat) (l : Nat → Nat)
+    (a : Nat) : Nat := by
+  classical
+  exact if h : (U.filter fun x => l x = l a).Nonempty then
+    (U.filter fun x => l x = l a).min' h else a
+
+theorem first_representative_mem (U : Finset Nat) (l : Nat → Nat)
+    (a : Nat) (ha : a ∈ U) :
+    firstRepresentative U l a ∈ U ∧
+      l (firstRepresentative U l a) = l a := by
+  classical
+  have h : (U.filter fun x => l x = l a).Nonempty :=
+    ⟨a,Finset.mem_filter.mpr ⟨ha,rfl⟩⟩
+  unfold firstRepresentative
+  rw [dif_pos h]
+  exact Finset.mem_filter.mp (Finset.min'_mem _ h)
+
+theorem first_representative_le (U : Finset Nat) (l : Nat → Nat)
+    (a b : Nat) (hb : b ∈ U) (he : l b = l a) :
+    firstRepresentative U l a ≤ b := by
+  classical
+  have hm : b ∈ U.filter (fun x => l x = l a) :=
+    Finset.mem_filter.mpr ⟨hb,he⟩
+  have h : (U.filter fun x => l x = l a).Nonempty := ⟨b,hm⟩
+  unfold firstRepresentative
+  rw [dif_pos h]
+  exact Finset.min'_le _ _ hm
+
+theorem first_representative_eq_iff (U : Finset Nat) (l : Nat → Nat)
+    (a b : Nat) (ha : a ∈ U) (hb : b ∈ U) :
+    firstRepresentative U l a = firstRepresentative U l b ↔ l a = l b := by
+  constructor
+  · intro he
+    have h1 := (first_representative_mem U l a ha).2
+    have h2 := (first_representative_mem U l b hb).2
+    rw [he] at h1
+    exact h1.symm.trans h2
+  · intro he
+    unfold firstRepresentative
+    rw [he]
+
+theorem first_representative_idem (U : Finset Nat) (l : Nat → Nat)
+    (a : Nat) (ha : a ∈ U) :
+    firstRepresentative U l (firstRepresentative U l a) =
+      firstRepresentative U l a := by
+  obtain ⟨hm,he⟩ := first_representative_mem U l a ha
+  exact (first_representative_eq_iff U l _ _ hm ha).mpr he
+
+noncomputable def canonicalAtomLabel (U : Finset Nat) (l : Nat → Nat)
+    (a : Nat) : Nat :=
+  indexRank (U.image (firstRepresentative U l)) (firstRepresentative U l a)
+
+theorem canonical_atom_label_eq_iff (U : Finset Nat) (l : Nat → Nat)
+    (a b : Nat) (ha : a ∈ U) (hb : b ∈ U) :
+    canonicalAtomLabel U l a = canonicalAtomLabel U l b ↔ l a = l b := by
+  unfold canonicalAtomLabel
+  constructor
+  · intro he
+    apply (first_representative_eq_iff U l a b ha hb).mp
+    exact index_rank_injective _ _ _
+      (Finset.mem_image.mpr ⟨a,ha,rfl⟩)
+      (Finset.mem_image.mpr ⟨b,hb,rfl⟩) he
+  · intro he
+    rw [(first_representative_eq_iff U l a b ha hb).mpr he]
+
+theorem same_partition_rank (U V : Finset Nat) (l l' : Nat → Nat)
+    (hV : V ⊆ U)
+    (he : ∀ a ∈ U, ∀ b ∈ U, l a = l b ↔ l' a = l' b) :
+    atomRank V l = atomRank V l' := by
+  classical
+  have hl (z : V.image l) : ∃ a ∈ V, l a = z.val :=
+    Finset.mem_image.mp z.property
+  let f : (V.image l) → Nat := fun z => l' (Classical.choose (hl z))
+  have hspec (z : V.image l) :
+      Classical.choose (hl z) ∈ V ∧ l (Classical.choose (hl z)) = z.val :=
+    Classical.choose_spec (hl z)
+  have him : (V.image l).attach.image f = V.image l' := by
+    ext z
+    constructor
+    · intro hz
+      obtain ⟨a,ha,heq⟩ := Finset.mem_image.mp hz
+      exact Finset.mem_image.mpr ⟨Classical.choose (hl a),(hspec a).1,heq⟩
+    · intro hz
+      obtain ⟨a,ha,rfl⟩ := Finset.mem_image.mp hz
+      let b : V.image l := ⟨l a,Finset.mem_image.mpr ⟨a,ha,rfl⟩⟩
+      refine Finset.mem_image.mpr ⟨b,Finset.mem_attach _ _,?_⟩
+      exact (he _ (hV (hspec b).1) a (hV ha)).mp (hspec b).2
+  have hcard : ((V.image l).attach.image f).card = (V.image l).attach.card := by
+    apply Finset.card_image_of_injOn
+    intro a ha b hb hf
+    apply Subtype.ext
+    have h := (he _ (hV (hspec a).1) _ (hV (hspec b).1)).mpr hf
+    exact (hspec a).2.symm.trans (h.trans (hspec b).2)
+  rw [him,Finset.card_attach] at hcard
+  exact hcard.symm
+
+theorem canonical_atom_rank (U V : Finset Nat) (l : Nat → Nat)
+    (hV : V ⊆ U) :
+    atomRank V (canonicalAtomLabel U l) = atomRank V l :=
+  same_partition_rank U V _ _ hV (canonical_atom_label_eq_iff U l)
+
+theorem canonical_aux_invariant {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat) (l : Nat → Nat)
+    (hi : AuxInvariant G C j l) :
+    AuxInvariant G C j (canonicalAtomLabel (atomUniverse G C) l) := by
+  constructor
+  · intro w hw hs a ha b hb
+    exact (canonical_atom_label_eq_iff _ _ _ _ (hs ha) (hs hb)).mpr
+      (hi.1 w hw hs a ha b hb)
+  · intro a ha hm u hu
+    have hr : u.val ∈ atomUniverse G C :=
+      Finset.mem_union.mpr (Or.inl (Finset.mem_range.mpr u.isLt))
+    exact (canonical_atom_label_eq_iff _ _ _ _ hr hm).mpr
+      (hi.2 a ha hm u hu)
+
+theorem canonical_local_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat) (l : Nat → Nat)
+    (hb : LocalBudget G C j l) :
+    LocalBudget G C j (canonicalAtomLabel (atomUniverse G C) l) := by
+  intro V hV hc
+  have hc' : ClassClosed (atomUniverse G C) V l := by
+    intro a ha b hb he
+    exact hc a ha b hb
+      ((canonical_atom_label_eq_iff _ _ _ _ (hV ha) hb).mpr he)
+  rw [canonical_atom_rank _ _ _ hV]
+  exact hb V hV hc'
+
+/-- The representatives encountered in a raw prefix are exactly
+the representatives whose indices are below that prefix length. -/
+theorem raw_prefix_representatives (U : Finset Nat) (l : Nat → Nat)
+    (i : Nat) (hi : Finset.range i ⊆ U) :
+    (Finset.range i).image (firstRepresentative U l) =
+      (U.image (firstRepresentative U l)).filter (fun a => a < i) := by
+  ext a
+  constructor
+  · intro ha
+    obtain ⟨b,hb,rfl⟩ := Finset.mem_image.mp ha
+    exact Finset.mem_filter.mpr ⟨Finset.mem_image.mpr ⟨b,hi hb,rfl⟩,
+      (first_representative_le U l b b (hi hb) rfl).trans_lt (Finset.mem_range.mp hb)⟩
+  · intro ha
+    obtain ⟨hm,hlt⟩ := Finset.mem_filter.mp ha
+    obtain ⟨b,hb,he⟩ := Finset.mem_image.mp hm
+    have ha' : a ∈ Finset.range i := Finset.mem_range.mpr hlt
+    refine Finset.mem_image.mpr ⟨a,ha',?_⟩
+    rw [← he,first_representative_idem U l b hb]
+
+theorem index_rank_prefix_eq (S : Finset Nat) (i a : Nat) (ha : a < i) :
+    indexRank (S.filter fun b => b < i) a = indexRank S a := by
+  unfold indexRank
+  congr 1
+  ext b
+  simp only [Finset.mem_filter]
+  constructor
+  · intro h
+    exact ⟨h.1.1,h.2⟩
+  · intro h
+    exact ⟨⟨h.1,h.2.trans ha⟩,h.2⟩
+
+/-- Every raw prefix has a contiguous range of labels. -/
+theorem canonical_raw_prefix_range (U : Finset Nat) (l : Nat → Nat)
+    (i : Nat) (hi : Finset.range i ⊆ U) :
+    (Finset.range i).image (canonicalAtomLabel U l) =
+      Finset.range ((Finset.range i).image l).card := by
+  classical
+  let S := U.image (firstRepresentative U l)
+  let P := S.filter fun a => a < i
+  have hP : (Finset.range i).image (firstRepresentative U l) = P :=
+    raw_prefix_representatives U l i hi
+  have h1 : (Finset.range i).image (canonicalAtomLabel U l) =
+      P.image (indexRank P) := by
+    ext z
+    constructor
+    · intro hz
+      obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+      have hm : firstRepresentative U l a ∈ P := by
+        rw [← hP]
+        exact Finset.mem_image.mpr ⟨a,ha,rfl⟩
+      have hlt := (Finset.mem_filter.mp hm).2
+      refine Finset.mem_image.mpr ⟨_,hm,?_⟩
+      rw [index_rank_prefix_eq S i _ hlt]
+      exact he
+    · intro hz
+      obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+      have hlt := (Finset.mem_filter.mp ha).2
+      have hm := ha
+      rw [← hP] at hm
+      obtain ⟨b,hb,hbe⟩ := Finset.mem_image.mp hm
+      refine Finset.mem_image.mpr ⟨b,hb,?_⟩
+      unfold canonicalAtomLabel
+      change indexRank S (firstRepresentative U l b) = z
+      rw [hbe,← index_rank_prefix_eq S i a hlt]
+      exact he
+  have hc := canonical_atom_rank U (Finset.range i) l hi
+  change ((Finset.range i).image (canonicalAtomLabel U l)).card =
+    ((Finset.range i).image l).card at hc
+  rw [h1,index_rank_image_range,Finset.card_range] at hc
+  rw [h1,index_rank_image_range,hc]
+
+/-- The next raw label is either an existing label or the next new
+label, exactly the range(b+1) loop in the Python partition walk. -/
+theorem canonical_next_label (U : Finset Nat) (l : Nat → Nat)
+    (i : Nat) (hi : Finset.range (i+1) ⊆ U) :
+    canonicalAtomLabel U l i ≤ ((Finset.range i).image l).card := by
+  have h := canonical_raw_prefix_range U l (i+1) hi
+  have hm : canonicalAtomLabel U l i ∈ (Finset.range (i+1)).image
+      (canonicalAtomLabel U l) :=
+    Finset.mem_image.mpr ⟨i,Finset.mem_range.mpr (by omega),rfl⟩
+  rw [h] at hm
+  have hlt := Finset.mem_range.mp hm
+  have hb : ((Finset.range (i+1)).image l).card ≤
+      ((Finset.range i).image l).card+1 := by
+    rw [Finset.range_succ,Finset.image_insert]
+    exact Finset.card_insert_le _ _
+  omega
+
+theorem canonical_prefix_pruning_safe (l : Nat → Nat)
+    (n i r : Nat) (hi : i ≤ n)
+    (hb : n ≤ ((Finset.range n).image l).card+r) :
+    n-r ≤ ((Finset.range i).image l).card+n-i := by
+  have h : ∀ d : Nat, ((Finset.range (i+d)).image l).card ≤
+      ((Finset.range i).image l).card+d := by
+    intro d
+    induction d with
+    | zero => simp
+    | succ d ih =>
+        have hstep : ((Finset.range (i+d+1)).image l).card ≤
+            ((Finset.range (i+d)).image l).card+1 := by
+          rw [Finset.range_succ,Finset.image_insert]
+          exact Finset.card_insert_le _ _
+        omega
+  have h' := h (n-i)
+  have he : i+(n-i) = n := by omega
+  rw [he] at h'
+  omega
+
+end L2260FirstMerge
