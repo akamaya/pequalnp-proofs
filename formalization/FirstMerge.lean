@@ -2893,3 +2893,132 @@ theorem local_dirty_or_sum_le {n : Nat} (G : SimpleGraph (Fin n))
   exact h
 
 end L2260FirstMerge
+
+
+/-! ## Reserve ORs for the other raw classes
+
+The OR-only support count and the simultaneous closed-subset budget
+are independent counting arguments, but the latter's original label
+is used for every partition cut. The other raw classes reserve at
+least (number of their raw atoms minus their number of classes) ORs.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+attribute [local instance] gateOpDecEq
+
+def rawClass (n : Nat) (l : Nat → Nat) (c : Nat) : Finset Nat :=
+  (Finset.range n).filter fun a => l a = c
+
+theorem other_raw_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l) (c : Nat)
+    (hc : c ∈ (Finset.range n).image l) :
+    (localDirtyOrGates G C (atomClass (atomUniverse G C) l c)).card + n + 1 ≤
+      (rawClass n l c).card + ((Finset.range n).image l).card +
+        (PEqualNP.TopForm.orN G C).card := by
+  classical
+  let R := (Finset.range n).image l
+  let W := (atomUniverse G C).filter fun a => l a ∈ R.erase c
+  let T := (Finset.range n).filter fun a => l a ≠ c
+  let A := atomClass (atomUniverse G C) l c
+  have hW : W ⊆ atomUniverse G C := Finset.filter_subset _ _
+  have hclosed : ClassClosed (atomUniverse G C) W l := by
+    intro x hx y hy he
+    have hm := (Finset.mem_filter.mp hx).2
+    exact Finset.mem_filter.mpr ⟨hy,he ▸ hm⟩
+  have hT : T ⊆ localFreeAtoms G C W := by
+    intro a ha
+    have ha' := Finset.mem_filter.mp ha
+    have hU : a ∈ atomUniverse G C := Finset.mem_union.mpr (Or.inl ha'.1)
+    have hR : l a ∈ R := Finset.mem_image.mpr ⟨a,ha'.1,rfl⟩
+    have haW : a ∈ W := Finset.mem_filter.mpr
+      ⟨hU,Finset.mem_erase.mpr ⟨ha'.2,hR⟩⟩
+    exact mem_local_free_of_raw_or_empty G C W a haW
+      (Or.inl (Finset.mem_range.mp ha'.1))
+  have hrank : atomRank W l ≤ (R.erase c).card := by
+    apply Finset.card_le_card
+    intro z hz
+    obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+    rw [← he]
+    exact (Finset.mem_filter.mp ha).2
+  have hR : (R.erase c).card + 1 = R.card := by
+    have hc' : c ∈ R := hc
+    have he := Finset.card_insert_of_notMem (Finset.notMem_erase c R)
+    rw [Finset.insert_erase hc'] at he
+    exact he.symm
+  have hTdis : Disjoint (rawClass n l c) T := by
+    apply Finset.disjoint_left.mpr
+    intro a ha ht
+    exact (Finset.mem_filter.mp ht).2 (Finset.mem_filter.mp ha).2
+  have hTunion : rawClass n l c ∪ T = Finset.range n := by
+    ext a
+    constructor
+    · intro ha
+      rcases Finset.mem_union.mp ha with ha | ha
+      · exact (Finset.mem_filter.mp ha).1
+      · exact (Finset.mem_filter.mp ha).1
+    · intro ha
+      by_cases h : l a = c
+      · exact Finset.mem_union.mpr (Or.inl (Finset.mem_filter.mpr ⟨ha,h⟩))
+      · exact Finset.mem_union.mpr (Or.inr (Finset.mem_filter.mpr ⟨ha,h⟩))
+  have hTcard := Finset.card_union_of_disjoint hTdis
+  rw [hTunion,Finset.card_range] at hTcard
+  have hd : Disjoint A W := by
+    apply Finset.disjoint_left.mpr
+    intro a ha hw
+    have he := (Finset.mem_filter.mp ha).2
+    exact (Finset.mem_erase.mp (Finset.mem_filter.mp hw).2).1 he
+  have hsum := local_dirty_or_sum_le G C A W hd
+  have hbudget := closed_subset_or_budget G C l hb W hW hclosed
+  have hTc := Finset.card_le_card hT
+  change (localDirtyOrGates G C A).card + n + 1 ≤
+    (rawClass n l c).card + R.card + (PEqualNP.TopForm.orN G C).card
+  omega
+
+/-- The support cap used by the fixed-partition SAT encoder.
+When a support touches raw class c, it has at most the raw class size
+plus the global slack r + b - n, including *all* junk atoms in it. -/
+theorem symbolic_support_raw_cap {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (l : Nat → Nat) (hi : AuxInvariant G C C.gates.length l)
+    (hb : LocalBudget G C C.gates.length l)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C)
+    (a : Nat) (ha : a ∈ symbolicSupport n C w) (haraw : a < n) :
+    (symbolicSupport n C w).card + n ≤
+      (rawClass n l (l a)).card + ((Finset.range n).image l).card +
+        (PEqualNP.TopForm.orN G C).card := by
+  let A := atomClass (atomUniverse G C) l (l a)
+  have hsub : symbolicSupport n C w ⊆ A := by
+    intro x hx
+    exact Finset.mem_filter.mpr ⟨hs hx,hi.1 w hw hs x hx a ha⟩
+  have hmem : l a ∈ (Finset.range n).image l :=
+    Finset.mem_image.mpr ⟨a,Finset.mem_range.mpr haraw,rfl⟩
+  have hreserve := other_raw_budget G C l hb (l a) hmem
+  have hsupport := symbolic_support_or_bound G C hAO w hw hs
+  have hmono := Finset.card_le_card (local_dirty_or_mono G C _ A hsub)
+  change (localDirtyOrGates G C A).card + n + 1 ≤
+    (rawClass n l (l a)).card + ((Finset.range n).image l).card +
+      (PEqualNP.TopForm.orN G C).card at hreserve
+  omega
+
+theorem and_operand_raw_cap {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (l : Nat → Nat) (hi : AuxInvariant G C C.gates.length l)
+    (hb : LocalBudget G C C.gates.length l)
+    (j : Nat) (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (w : Nat) (hr : w ∈ (gateAt C j).inputs)
+    (a : Nat) (ha : a ∈ symbolicSupport n C w) (haraw : a < n) :
+    (symbolicSupport n C w).card + n ≤
+      (rawClass n l (l a)).card + ((Finset.range n).image l).card +
+        (PEqualNP.TopForm.orN G C).card := by
+  have hw := hAO.2.1 j hj w hr
+  exact symbolic_support_raw_cap G C hAO l hi hb w (by omega)
+    (and_operand_support_subset G C hAO htop j hj hop w hr) a ha haraw
+
+end L2260FirstMerge
