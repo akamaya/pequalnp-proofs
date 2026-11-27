@@ -443,3 +443,92 @@ theorem graph_edge_first_merge_indexed {n : Nat} (G : SimpleGraph (Fin n))
     exact hopp
 
 end L2260FirstMerge
+
+/-! ## Clean cross-products in a graph with no four-cycle
+
+These lemmas formalize the graph-theoretic part of the incompatible-edge
+cuts. The hypotheses that the effective singleton sets of a clean AND
+form an adjacent cross-product and each lie in one component still need
+to be derived from the circuit.
+-/
+namespace L2260FirstMerge
+
+def CrossPair {α : Type} (A B : Finset α) (u v : α) : Prop :=
+  (u ∈ A ∧ v ∈ B) ∨ (v ∈ A ∧ u ∈ B)
+
+/-- The two sides of a complete bipartite subgraph cannot both have
+two vertices in a graph with no four-cycle. -/
+theorem cross_card_le_one {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (h4 : PEqualNP.TopForm.NoFourCycle G)
+    (A B : Finset (Fin n))
+    (hadj : ∀ a ∈ A, ∀ b ∈ B, G.Adj a b) :
+    A.card ≤ 1 ∨ B.card ≤ 1 := by
+  classical
+  by_cases hA : A.card ≤ 1
+  · exact Or.inl hA
+  · have hA' : 1 < A.card := by omega
+    obtain ⟨a,ha,a',ha',hne⟩ := Finset.one_lt_card.mp hA'
+    have hsub : B ⊆ Finset.univ.filter (fun w => G.Adj a w ∧ G.Adj a' w) := by
+      intro b hb
+      exact Finset.mem_filter.mpr ⟨Finset.mem_univ b,hadj a ha b hb,hadj a' ha' b hb⟩
+    exact Or.inr ((Finset.card_le_card hsub).trans (h4 a a' hne))
+
+/-- When both sides are nonempty, every crossing edge has a common
+centre. This is a property of the effective singleton sets, not
+necessarily the raw OR-support sets. -/
+theorem cross_pairs_common_center {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (h4 : PEqualNP.TopForm.NoFourCycle G)
+    (A B : Finset (Fin n)) (hA : A.Nonempty) (hB : B.Nonempty)
+    (hadj : ∀ a ∈ A, ∀ b ∈ B, G.Adj a b) :
+    ∃ c : Fin n, ∀ u v, CrossPair A B u v → u = c ∨ v = c := by
+  obtain ⟨a,ha⟩ := hA
+  obtain ⟨b,hb⟩ := hB
+  rcases cross_card_le_one G h4 A B hadj with h | h
+  · refine ⟨a,?_⟩
+    intro u v huv
+    rcases huv with ⟨hu,hv⟩ | ⟨hv,hu⟩
+    · exact Or.inl (Finset.card_le_one.mp h u hu a ha)
+    · exact Or.inr (Finset.card_le_one.mp h v hv a ha)
+  · refine ⟨b,?_⟩
+    intro u v huv
+    rcases huv with ⟨hu,hv⟩ | ⟨hv,hu⟩
+    · exact Or.inr (Finset.card_le_one.mp h v hv b hb)
+    · exact Or.inl (Finset.card_le_one.mp h u hu b hb)
+
+/-- Two disjoint graph edges cannot both be in one clean crossing
+star. This justifies the disjoint-endpoint part of the SAT clique cut. -/
+theorem cross_pairs_share_endpoint {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (h4 : PEqualNP.TopForm.NoFourCycle G)
+    (A B : Finset (Fin n)) (hadj : ∀ a ∈ A, ∀ b ∈ B, G.Adj a b)
+    (u v x y : Fin n) (he : CrossPair A B u v) (hf : CrossPair A B x y) :
+    u = x ∨ u = y ∨ v = x ∨ v = y := by
+  have hA : A.Nonempty := by
+    rcases he with h | h
+    · exact ⟨u,h.1⟩
+    · exact ⟨v,h.1⟩
+  have hB : B.Nonempty := by
+    rcases he with h | h
+    · exact ⟨v,h.2⟩
+    · exact ⟨u,h.2⟩
+  obtain ⟨c,hc⟩ := cross_pairs_common_center G h4 A B hA hB hadj
+  rcases hc u v he with hu | hv
+  · rcases hc x y hf with hx | hy
+    · exact Or.inl (hu.trans hx.symm)
+    · exact Or.inr (Or.inl (hu.trans hy.symm))
+  · rcases hc x y hf with hx | hy
+    · exact Or.inr (Or.inr (Or.inl (hv.trans hx.symm)))
+    · exact Or.inr (Or.inr (Or.inr (hv.trans hy.symm)))
+
+/-- If both operand singleton sets are component-local, all their
+crossing edges have the same unordered component pair. -/
+theorem cross_pairs_same_blocks {α β : Type} (A B : Finset α)
+    (label : α → β) (a b : β)
+    (hA : ∀ x ∈ A, label x = a) (hB : ∀ x ∈ B, label x = b)
+    (u v : α) (he : CrossPair A B u v) :
+    (label u = a ∧ label v = b) ∨
+      (label u = b ∧ label v = a) := by
+  rcases he with ⟨hu,hv⟩ | ⟨hv,hu⟩
+  · exact Or.inl ⟨hA u hu,hB v hv⟩
+  · exact Or.inr ⟨hB u hu,hA v hv⟩
+
+end L2260FirstMerge
