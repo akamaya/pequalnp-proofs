@@ -746,7 +746,7 @@ theorem gateVal_or_eq {n : Nat} (C : Circuit)
     (hop : (gateAt C j).op = GateOp.or)
     (hin : (gateAt C j).inputs = [a,b]) (x : Fin n → Bool) :
     gateVal n C j x =
-      ((C.wires (List.ofFn x)).getD a false &&
+      ((C.wires (List.ofFn x)).getD a false ||
        (C.wires (List.ofFn x)).getD b false) := by
   obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj
   have hat : gateAt C j = g := by
