@@ -710,7 +710,7 @@ theorem clean_effective_adj {n : Nat} (G : SimpleGraph (Fin n))
     exact Or.inr h)
   have ht : gateVal n C j (pairInput u v) = true := by
     rw [gateVal_and_eq C hAO.2.1 j a b hj hop hin]
-    simp [hleft a hu',hright b hv']
+    exact Bool.and_eq_true_iff.mpr ⟨hleft a hu', hright b hv'⟩
   exact graph_pair_adj_of_true G u v (hc _ ht)
 
 /-- The effective singleton supports of an actual clean AND form a
