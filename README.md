@@ -531,3 +531,17 @@ cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/f
 ```
 
 既存checkpointは読み取りのみ、新規batch用SQLiteへ保存。全体600秒で探索を打ち切り、中断した未確定分割は残す。速度向上・6時間内の証明完了は保証しない。mainは変更しない。
+
+### WSL result: (7,6) 30-second retry and batch smoke test
+
+v2再探索1380分割中1373 UNSAT、残り7（6350,16947,18866,20214,25768,28437,30712）、989.117秒。累計31685/31692 UNSAT。残り7はすべてb=5/slack=0。incremental/batch self-testともPASS（incremental SAT 9/UNSAT 6）。batchはv2の31685 UNSATを読み込み、残り7を15秒/leafで検査し全TIMEOUT（25.213秒、batch_unsat=0、splits=0）。従ってMDD一括処理の速度評価にはならない。暫定94/100のまま。
+
+まず既存v2で7分割だけ300秒/8並列で再探索する。新規ケースの一括探索性能は(k,r)=(5,8..10)を600秒で計測する。v2とbatchのDBは別。既存コード変更なし。Lean形式化・証明書検証は未完。
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --top-count 7 --or-count 6 --jobs 8 --seconds 300 --solver cadical195
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_batch_v1.py --top-count 5 --or-min 8 --or-max 10 --jobs 8 --prefix-depth 8 --seconds 2 --leaf-seconds 15 --wall-seconds 600 --solver cadical195
+```
