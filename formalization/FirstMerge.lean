@@ -5228,8 +5228,8 @@ theorem append_or_chain {n : Nat} (T : Finset Nat) (D : Circuit)
         apply append_physical_ao D hAO g (Or.inr rfl) (by simp [g])
         intro w hw
         change w ∈ [seed,a] at hw
-        simp only [List.mem_cons,List.mem_singleton] at hw
-        rcases hw with rfl | rfl
+        have hw' : w = seed ∨ w = a := by simpa using hw
+        rcases hw' with rfl | rfl
         · exact hseed
         · exact hab
       have hlen : B.gates.length = D.gates.length+1 := by
