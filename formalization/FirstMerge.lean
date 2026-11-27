@@ -3327,3 +3327,234 @@ theorem two_junk_source_budget {n : Nat} (G : SimpleGraph (Fin n))
   omega
 
 end L2260FirstMerge
+
+
+/-! ## Normalization: dense source numbering
+
+Original inputs retain their indices. Junk ANDs are numbered by their
+physical order, and internal ORs are numbered by their physical order
+in a separate suffix. The latter order is sufficient for the OR-to-OR
+dependencies even though a junk atom can depend on an earlier OR.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def indexRank (S : Finset Nat) (i : Nat) : Nat :=
+  (S.filter fun a => a < i).card
+
+theorem index_rank_lt_card (S : Finset Nat) (i : Nat) (hi : i ∈ S) :
+    indexRank S i < S.card := by
+  let T := S.filter fun a => a < i
+  have hn : i ∉ T := by simp [T]
+  have hs : insert i T ⊆ S := by
+    intro a ha
+    rcases Finset.mem_insert.mp ha with he | ht
+    · simpa [he] using hi
+    · exact (Finset.mem_filter.mp ht).1
+  have h := Finset.card_le_card hs
+  rw [Finset.card_insert_of_notMem hn] at h
+  change T.card < S.card
+  omega
+
+theorem index_rank_strict (S : Finset Nat) (i j : Nat)
+    (hi : i ∈ S) (hij : i < j) : indexRank S i < indexRank S j := by
+  let T := S.filter fun a => a < i
+  let U := S.filter fun a => a < j
+  have hn : i ∉ T := by simp [T]
+  have hs : insert i T ⊆ U := by
+    intro a ha
+    rcases Finset.mem_insert.mp ha with he | ht
+    · subst a
+      exact Finset.mem_filter.mpr ⟨hi,hij⟩
+    · have hm := Finset.mem_filter.mp ht
+      exact Finset.mem_filter.mpr ⟨hm.1,hm.2.trans hij⟩
+  have h := Finset.card_le_card hs
+  rw [Finset.card_insert_of_notMem hn] at h
+  change T.card < U.card
+  omega
+
+theorem index_rank_injective (S : Finset Nat) (i j : Nat)
+    (hi : i ∈ S) (hj : j ∈ S) (he : indexRank S i = indexRank S j) :
+    i = j := by
+  rcases lt_trichotomy i j with h | h | h
+  · have h' := index_rank_strict S i j hi h
+    omega
+  · exact h
+  · have h' := index_rank_strict S j i hj h
+    omega
+
+def sourceCode {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat) : Nat :=
+  if w < n then w
+  else if w-n ∈ PEqualNP.TopForm.junk G C then
+    n + indexRank (PEqualNP.TopForm.junk G C) (w-n)
+  else n + (PEqualNP.TopForm.junk G C).card +
+    indexRank (internalOrGates G C) (w-n)
+
+theorem source_code_raw {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat) (hw : w < n) :
+    sourceCode G C w = w := by
+  simp [sourceCode,hw]
+
+theorem source_code_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hj : j ∈ PEqualNP.TopForm.junk G C) :
+    sourceCode G C (n+j) = n + indexRank (PEqualNP.TopForm.junk G C) j := by
+  have hn : ¬ n+j < n := by omega
+  have he : n+j-n = j := by omega
+  simp [sourceCode,hn,he,hj]
+
+theorem internal_or_not_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hj : j ∈ internalOrGates G C) :
+    j ∉ PEqualNP.TopForm.junk G C := by
+  intro h
+  have hop := (internal_or_mem G C j hj).2.1
+  have hd : IsDirtyAnd n G C j := (Finset.mem_filter.mp h).2
+  have ha := hd.1
+  rw [hop] at ha
+  contradiction
+
+theorem source_code_or {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hj : j ∈ internalOrGates G C) :
+    sourceCode G C (n+j) = n + (PEqualNP.TopForm.junk G C).card +
+      indexRank (internalOrGates G C) j := by
+  have hn : ¬ n+j < n := by omega
+  have he : n+j-n = j := by omega
+  simp [sourceCode,hn,he,internal_or_not_junk G C j hj]
+
+theorem source_cases {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat)
+    (hw : w ∈ internalSource G C) :
+    w < n ∨ (∃ j ∈ PEqualNP.TopForm.junk G C, w = n+j) ∨
+      ∃ j ∈ internalOrGates G C, w = n+j := by
+  rcases Finset.mem_union.mp hw with ha | ho
+  · rcases Finset.mem_union.mp ha with hr | hj
+    · exact Or.inl (Finset.mem_range.mp hr)
+    · obtain ⟨j,hj,he⟩ := Finset.mem_image.mp hj
+      exact Or.inr (Or.inl ⟨j,hj,he.symm⟩)
+  · obtain ⟨j,hj,he⟩ := Finset.mem_image.mp ho
+    exact Or.inr (Or.inr ⟨j,hj,he.symm⟩)
+
+theorem source_code_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat)
+    (hw : w ∈ internalSource G C) :
+    sourceCode G C w < n + (PEqualNP.TopForm.junk G C).card +
+      (internalOrGates G C).card := by
+  rcases source_cases G C w hw with hr | ⟨j,hj,he⟩ | ⟨j,hj,he⟩
+  · rw [source_code_raw G C w hr]
+    omega
+  · rw [he,source_code_junk G C j hj]
+    have h := index_rank_lt_card _ j hj
+    omega
+  · rw [he,source_code_or G C j hj]
+    have h := index_rank_lt_card _ j hj
+    omega
+
+/-- Distinct physical sources never acquire the same SAT source number. -/
+theorem source_code_injective {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (a b : Nat)
+    (ha : a ∈ internalSource G C) (hb : b ∈ internalSource G C)
+    (he : sourceCode G C a = sourceCode G C b) : a = b := by
+  rcases source_cases G C a ha with har | ⟨i,hi,rfl⟩ | ⟨i,hi,rfl⟩
+  · rw [source_code_raw G C a har] at he
+    rcases source_cases G C b hb with hbr | ⟨j,hj,rfl⟩ | ⟨j,hj,rfl⟩
+    · rw [source_code_raw G C b hbr] at he
+      exact he
+    · rw [source_code_junk G C j hj] at he
+      omega
+    · rw [source_code_or G C j hj] at he
+      omega
+  · rw [source_code_junk G C i hi] at he
+    have hir := index_rank_lt_card _ i hi
+    rcases source_cases G C b hb with hbr | ⟨j,hj,rfl⟩ | ⟨j,hj,rfl⟩
+    · rw [source_code_raw G C b hbr] at he
+      omega
+    · rw [source_code_junk G C j hj] at he
+      have hr : indexRank (PEqualNP.TopForm.junk G C) i =
+          indexRank (PEqualNP.TopForm.junk G C) j := by omega
+      rw [index_rank_injective _ i j hi hj hr]
+    · rw [source_code_or G C j hj] at he
+      omega
+  · rw [source_code_or G C i hi] at he
+    rcases source_cases G C b hb with hbr | ⟨j,hj,rfl⟩ | ⟨j,hj,rfl⟩
+    · rw [source_code_raw G C b hbr] at he
+      omega
+    · rw [source_code_junk G C j hj] at he
+      have hjr := index_rank_lt_card _ j hj
+      omega
+    · rw [source_code_or G C j hj] at he
+      have hr : indexRank (internalOrGates G C) i =
+          indexRank (internalOrGates G C) j := by omega
+      rw [index_rank_injective _ i j hi hj hr]
+
+/-- All physical children of an internal OR have a smaller source
+number in the SAT layout (raw and junk atoms precede the OR suffix). -/
+theorem source_code_before_or {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w j : Nat)
+    (hw : w ∈ internalSource G C) (hj : j ∈ internalOrGates G C)
+    (hlt : w < n+j) :
+    sourceCode G C w < sourceCode G C (n+j) := by
+  rw [source_code_or G C j hj]
+  rcases source_cases G C w hw with hr | ⟨i,hi,rfl⟩ | ⟨i,hi,rfl⟩
+  · rw [source_code_raw G C w hr]
+    omega
+  · rw [source_code_junk G C i hi]
+    have h := index_rank_lt_card _ i hi
+    omega
+  · rw [source_code_or G C i hi]
+    have hij : i < j := by omega
+    have h := index_rank_strict _ i j hi hij
+    omega
+
+def numberedSupport {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat) : Finset Nat :=
+  (symbolicSupport n C w).image (sourceCode G C)
+
+theorem numbered_support_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) :
+    (numberedSupport G C w).card = (symbolicSupport n C w).card := by
+  unfold numberedSupport
+  apply Finset.card_image_of_injOn
+  intro a ha b hb he
+  exact source_code_injective G C a b
+    (Finset.mem_union.mpr (Or.inl (hs ha)))
+    (Finset.mem_union.mpr (Or.inl (hs hb))) he
+
+theorem numbered_support_union {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j a b : Nat)
+    (hu : symbolicSupport n C (n+j) =
+      symbolicSupport n C a ∪ symbolicSupport n C b) :
+    numberedSupport G C (n+j) = numberedSupport G C a ∪ numberedSupport G C b := by
+  unfold numberedSupport
+  rw [hu,Finset.image_union]
+
+/-- For a junk consumer its support bits can only refer to raw inputs
+and strictly earlier junk ranks, exactly as in the SAT encoder. -/
+theorem numbered_junk_operand_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) (j : Nat)
+    (hj : j ∈ PEqualNP.TopForm.junk G C)
+    (w : Nat) (hw : w ∈ (gateAt C j).inputs)
+    (z : Nat) (hz : z ∈ numberedSupport G C w) :
+    z < n + indexRank (PEqualNP.TopForm.junk G C) j := by
+  have hlt := Finset.mem_range.mp (Finset.mem_filter.mp hj).1
+  have hd : IsDirtyAnd n G C j := (Finset.mem_filter.mp hj).2
+  obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+  rcases and_operand_leaf_earlier_junk G C hAO htop j hlt hd.1 w hw a ha with
+    hr | ⟨i,hi,hij,hai⟩
+  · rw [← he,source_code_raw G C a hr]
+    omega
+  · rw [← he,hai,source_code_junk G C i hi]
+    have h := index_rank_strict _ i j hi hij
+    omega
+
+end L2260FirstMerge
