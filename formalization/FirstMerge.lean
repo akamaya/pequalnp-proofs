@@ -4337,3 +4337,161 @@ theorem least_two_junk_source_count {n : Nat} (G : SimpleGraph (Fin n))
   rw [internal_source_card,h2,internal_or_eq_orN G C hmin htop]
 
 end L2260FirstMerge
+
+
+/-! ## Graph exposure (v19)
+
+Changing just one input can change the output only if some first
+reader changes. An OR whose raw support contains a true input is
+already true and cannot change under this monotone input extension.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem raw_wire_value {n : Nat} (C : Circuit) (x : Fin n → Bool)
+    (u : Fin n) : wireVal n C u.val x = x u := by
+  change (C.gates.foldl gateStep (List.ofFn x)).getD u.val false = x u
+  rw [fold_preserves_getD C.gates _ _ (by simpa using u.isLt)]
+  simp [List.getD_eq_getElem?_getD,u.isLt]
+
+theorem raw_symbolic_singleton {n : Nat} (C : Circuit) (u : Fin n) :
+    symbolicSupport n C u.val = {u.val} := by
+  apply symbolic_atom
+  intro h
+  have h' := h.1
+  exact (Nat.not_le_of_lt u.isLt) h'
+
+theorem raw_reader_or_internal {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (u : Fin n) (j : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.or)
+    (hr : u.val ∈ (gateAt C j).inputs) :
+    j ∈ internalOrGates G C := by
+  have hm : u.val ∈ symbolicSupport n C (n+j) := by
+    apply or_reader_support_subset C hmin.1 j u.val hj hop hr
+    rw [raw_symbolic_singleton C u]
+    simp
+  have hd : ¬ PEqualNP.TopForm.BelowF G C j := by
+    intro hc
+    have hx : wireVal n C u.val (pairInput u u) = true := by
+      rw [raw_wire_value]
+      simp [pairInput]
+    have ht : gateVal n C j (pairInput u u) = true :=
+      (symbolic_eval C hmin.1 (pairInput u u) (n+j)).mpr ⟨u.val,hm,hx⟩
+    have hh := hc (pairInput u u) ht
+    rw [graph_singleton_false G u] at hh
+    contradiction
+  exact dirty_or_internal G C hmin htop j
+    (Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,hd⟩)
+
+theorem graph_exposure {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (x y : Fin n → Bool) (v : Fin n)
+    (hxy : ∀ u, u ≠ v → x u = y u)
+    (hxv : x v = false) (hyv : y v = true)
+    (hfx : graphFun G ∅ x = false) (hfy : graphFun G ∅ y = true) :
+    (∃ j < C.gates.length, (gateAt C j).op = GateOp.and ∧
+      v.val ∈ (gateAt C j).inputs) ∨
+    (∃ j ∈ internalOrGates G C, v.val ∈ (gateAt C j).inputs ∧
+      ∀ u : Fin n, x u = true → u.val ∉ symbolicSupport n C (n+j)) := by
+  classical
+  by_contra hn
+  have hmono : ∀ u, x u = true → y u = true := by
+    intro u hu
+    by_cases he : u = v
+    · subst u
+      exact hyv
+    · rw [← hxy u he]
+      exact hu
+  have hsame : ∀ w : Nat, w < n+C.gates.length → w ≠ v.val →
+      wireVal n C w x = wireVal n C w y := by
+    intro w
+    induction w using Nat.strongRecOn with
+    | ind w ih =>
+        intro hw hv
+        by_cases hraw : w < n
+        · let u : Fin n := ⟨w,hraw⟩
+          have hu : u ≠ v := by
+            intro he
+            apply hv
+            exact congrArg Fin.val he
+          change wireVal n C u.val x = wireVal n C u.val y
+          rw [raw_wire_value,raw_wire_value]
+          exact hxy u hu
+        · let j := w-n
+          have hidx : w = n+j := by dsimp [j]; omega
+          have hj : j < C.gates.length := by omega
+          obtain ⟨hin,ha,hb⟩ := actual_opnds C hmin.1 j hj
+          let a := PEqualNP.TopForm.opnd C j 0
+          let b := PEqualNP.TopForm.opnd C j 1
+          have har : a ∈ (gateAt C j).inputs := by rw [hin]; simp [a]
+          have hbr : b ∈ (gateAt C j).inputs := by rw [hin]; simp [b]
+          by_cases hread : v.val ∈ (gateAt C j).inputs
+          · have hop : (gateAt C j).op = GateOp.or := by
+              rcases hmin.1.1 _ (actual_gate_mem C j hj) with hand | hor
+              · exact False.elim (hn (Or.inl ⟨j,hj,hand,hread⟩))
+              · exact hor
+            have hjin := raw_reader_or_internal G C hmin htop v j hj hop hread
+            have hex : ∃ u : Fin n, x u = true ∧
+                u.val ∈ symbolicSupport n C (n+j) := by
+              by_contra hh
+              apply hn
+              refine Or.inr ⟨j,hjin,hread,?_⟩
+              intro u hu hm
+              exact hh ⟨u,hu,hm⟩
+            obtain ⟨u,hu,hm⟩ := hex
+            have ht : wireVal n C (n+j) x = true :=
+              (symbolic_eval C hmin.1 x (n+j)).mpr
+                ⟨u.val,hm,(raw_wire_value C x u).trans hu⟩
+            have ht' : wireVal n C (n+j) y = true :=
+              wire_monotone C hmin.1 x y hmono (n+j) ht
+            rw [hidx,ht,ht']
+          · have han : a ≠ v.val := fun he => hread (he ▸ har)
+            have hbn : b ≠ v.val := fun he => hread (he ▸ hbr)
+            have hal : a < w := by rw [hidx]; exact ha
+            have hbl : b < w := by rw [hidx]; exact hb
+            have hA := ih a hal (hal.trans hw) han
+            have hB := ih b hbl (hbl.trans hw) hbn
+            rw [hidx]
+            rcases hmin.1.1 _ (actual_gate_mem C j hj) with hand | hor
+            · have h1 := gateVal_and_eq C hmin.1.2.1 j a b hj hand hin x
+              have h2 := gateVal_and_eq C hmin.1.2.1 j a b hj hand hin y
+              change wireVal n C (n+j) x = (wireVal n C a x && wireVal n C b x) at h1
+              change wireVal n C (n+j) y = (wireVal n C a y && wireVal n C b y) at h2
+              rw [h1,h2,hA,hB]
+            · have h1 := gateVal_or_eq C hmin.1.2.1 j a b hj hor hin x
+              have h2 := gateVal_or_eq C hmin.1.2.1 j a b hj hor hin y
+              change wireVal n C (n+j) x = (wireVal n C a x || wireVal n C b x) at h1
+              change wireVal n C (n+j) y = (wireVal n C a y || wireVal n C b y) at h2
+              rw [h1,h2,hA,hB]
+  have hpos : ∃ u w, G.Adj u w ∧ y u = true ∧ y w = true := by
+    simpa [graphFun] using hfy
+  obtain ⟨u,t,he,_,_⟩ := hpos
+  have hout := actual_output_bound G C hmin u t he
+  have houtne : C.output ≠ v.val := by
+    intro heq
+    have hf := congrFun hmin.2.1 (pairInput v v)
+    change wireVal n C C.output (pairInput v v) =
+      graphFun G ∅ (pairInput v v) at hf
+    rw [heq,raw_wire_value,graph_singleton_false G v] at hf
+    simp [pairInput] at hf
+  have hs := hsame C.output hout houtne
+  change C.eval (List.ofFn x) = C.eval (List.ofFn y) at hs
+  have hf1 := congrFun hmin.2.1 x
+  have hf2 := congrFun hmin.2.1 y
+  change C.eval (List.ofFn x) = graphFun G ∅ x at hf1
+  change C.eval (List.ofFn y) = graphFun G ∅ y at hf2
+  rw [hf1,hf2,hfx,hfy] at hs
+  contradiction
+
+end L2260FirstMerge
