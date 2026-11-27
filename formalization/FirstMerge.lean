@@ -6328,8 +6328,8 @@ theorem or_reaches_and_atom {n : Nat} (C : Circuit)
             apply (or_reaches_step C j g hj).mpr
             exact Or.inr ⟨hop,k,hk,hak ▸ har,hak ▸ hr⟩
           rcases Finset.mem_union.mp hm with hm | hm
-          · exact descend _ ha (by rw [hin]; simp) hm
-          · exact descend _ hb (by rw [hin]; simp) hm
+          · exact descend _ ha (by change PEqualNP.TopForm.opnd C j 0 ∈ (gateAt C j).inputs; rw [hin]; simp) hm
+          · exact descend _ hb (by change PEqualNP.TopForm.opnd C j 1 ∈ (gateAt C j).inputs; rw [hin]; simp) hm
       · rw [symbolic_atom n C w hex]
         constructor
         · intro hr
