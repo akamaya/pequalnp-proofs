@@ -545,3 +545,11 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_pa
 ```bash
 cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_batch_v1.py --top-count 5 --or-min 8 --or-max 10 --jobs 8 --prefix-depth 8 --seconds 2 --leaf-seconds 15 --wall-seconds 600 --solver cadical195
 ```
+
+### FirstMerge Lean bridge
+
+WSLで旧formalization/FirstMerge.leanの抽象補題が終了コード0（LEAN PROOF CHECK OK）。既存補題を保持したまま、公式PEqualNP.Defs.TopFormをimportし、Circuit.wiresのfoldlに対する帰納法と、IsLeastAOおよびgraphFunの辺入力から実際のANDゲートの先行ゲート列・二つのoperandがOppositeを満たすことを示すgraph_edge_first_mergeを追加。新規部分はLean未コンパイル。これはL_meta_2260全体の証明ではない。公式gateValとの同一性（先行wire値の保存）、OR閉包、成分・星被覆、CNFの正当化、証明書検証は残る。mainは変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CIRCUIT BRIDGE CHECK OK"
+```
