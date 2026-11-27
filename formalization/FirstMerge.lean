@@ -5410,3 +5410,163 @@ theorem least_top_private_edge {n : Nat} (G : SimpleGraph (Fin n))
   omega
 
 end L2260FirstMerge
+
+
+/-! ## Nested junk: from the posted InCone hypothesis to the SAT atom
+
+The posted L_meta_2260 hypotheses already include InCone n C i j
+and junk G C = {i,j}. This is not a claim that every pair of junk
+ANDs in an arbitrary least circuit must be nested. We derive the
+actual OR-support occurrence required by the nested SAT encoding.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+/-- Converse of cone_of_read: follow a real direct predecessor. -/
+theorem cone_read_predecessor {n : Nat} (C : Circuit) (i j : Nat)
+    (hj : j < C.gates.length) (hc : InCone n C i j) :
+    ∃ k < j, n+k ∈ (gateAt C j).inputs ∧
+      (i = k ∨ InCone n C i k) := by
+  obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj
+  have hat : gateAt C j = g := by
+    unfold gateAt
+    rw [hg,← hpre]
+    exact split_getD pre post g _
+  let cs := pre.foldl (coneStep n) []
+  have hlen : cs.length = j := by
+    dsimp [cs]
+    rw [cone_fold_length,hpre]
+    simp
+  have hjcs : j < (coneStep n cs g).length := by
+    simp [coneStep,hlen]
+  unfold InCone cones at hc
+  rw [hg,List.foldl_append] at hc
+  change i ∈ (post.foldl (coneStep n) (coneStep n cs g)).getD j [] at hc
+  rw [cone_fold_preserves n post _ j hjcs] at hc
+  unfold coneStep at hc
+  rw [generic_getD_snoc,hlen,if_pos rfl] at hc
+  obtain ⟨w,hw,hi⟩ := List.mem_flatMap.mp hc
+  have hm := List.mem_filter.mp hw
+  have hb : n ≤ w ∧ w < n+j := by
+    simpa only [decide_eq_true_eq] using hm.2
+  let k := w-n
+  have hk : k < j := by dsimp [k]; omega
+  have he : n+k = w := by dsimp [k]; omega
+  refine ⟨k,hk,?_,?_⟩
+  · rw [hat,he]
+    exact hm.1
+  · change i ∈ k :: cs.getD k [] at hi
+    rcases List.mem_cons.mp hi with hi | hi
+    · exact Or.inl hi
+    · apply Or.inr
+      unfold InCone cones
+      rw [hg,List.foldl_append]
+      change i ∈ ((g :: post).foldl (coneStep n) cs).getD k []
+      rw [cone_fold_preserves n (g :: post) cs k (by omega)]
+      exact hi
+
+theorem real_cone_lt {n : Nat} (C : Circuit) (i j : Nat)
+    (hj : j < C.gates.length) (hc : InCone n C i j) : i < j := by
+  induction j using Nat.strongRecOn with
+  | ind j ih =>
+      obtain ⟨k,hk,_,h⟩ := cone_read_predecessor C i j hj hc
+      rcases h with he | hc
+      · omega
+      · exact (ih k hk (by omega) hc).trans hk
+
+/-- On a path out of an AND, either its wire survives as an OR atom
+or the path encounters another AND. The latter is strictly later
+than the original AND, and is at or below the root. -/
+theorem cone_and_atom_or_intermediate {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (i k : Nat)
+    (hk : k < C.gates.length)
+    (hiop : (gateAt C i).op = GateOp.and)
+    (hc : i = k ∨ InCone n C i k) :
+    n+i ∈ symbolicSupport n C (n+k) ∨
+      ∃ a, i < a ∧ a ≤ k ∧ (gateAt C a).op = GateOp.and ∧
+        (a = k ∨ InCone n C a k) := by
+  induction k using Nat.strongRecOn with
+  | ind k ih =>
+      rcases hc with he | hc
+      · subst k
+        left
+        rw [and_wire_symbolic_singleton C i hiop]
+        simp
+      · rcases hAO.1 _ (actual_gate_mem C k hk) with ha | ho
+        · exact Or.inr ⟨k,real_cone_lt C i k hk hc,Nat.le_refl _,ha,Or.inl rfl⟩
+        · obtain ⟨p,hp,hr,hpath⟩ := cone_read_predecessor C i k hk hc
+          have hp' : p < C.gates.length := by omega
+          rcases ih p hp hp' hpath with hm | ⟨a,hia,hap,haop,hac⟩
+          · exact Or.inl (or_reader_support_subset C hAO k (n+p) hk ho hr hm)
+          · exact Or.inr ⟨a,hia,by omega,haop,
+              Or.inr (cone_of_read C k p a hk hp hr hac)⟩
+
+/-- A real AND in the strict cone of another AND is junk in TopForm. -/
+theorem cone_and_is_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (a j : Nat) (hj : j < C.gates.length)
+    (haop : (gateAt C a).op = GateOp.and)
+    (hjop : (gateAt C j).op = GateOp.and)
+    (hc : InCone n C a j) :
+    a ∈ PEqualNP.TopForm.junk G C := by
+  classical
+  have ha : a < C.gates.length := (real_cone_lt C a j hj hc).trans hj
+  have hd : ¬ PEqualNP.TopForm.BelowF G C a := by
+    intro h
+    exact htop a ha j hj haop h hjop hc
+  unfold PEqualNP.TopForm.BelowF at hd
+  push_neg at hd
+  obtain ⟨x,hx,hf⟩ := hd
+  have hex : ∃ x : Fin n → Bool, gateVal n C a x = true ∧
+      graphFun G ∅ x = false :=
+    ⟨x,hx,by cases h : graphFun G ∅ x <;> simp_all⟩
+  exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr ha,haop,ha,hex⟩
+
+/-- With exactly the posted two nested junk gates, an intervening
+AND would be a third junk. Thus the first junk occurs in the
+symbolic support of one actual operand of the second. -/
+theorem nested_junk_operand {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (i j : Nat) (hJ : PEqualNP.TopForm.junk G C = {i,j})
+    (hc : InCone n C i j) :
+    i < j ∧ ∃ w ∈ (gateAt C j).inputs,
+      n+i ∈ symbolicSupport n C w := by
+  classical
+  have hiJ : i ∈ PEqualNP.TopForm.junk G C := by rw [hJ]; simp
+  have hjJ : j ∈ PEqualNP.TopForm.junk G C := by rw [hJ]; simp
+  have hiop := (Finset.mem_filter.mp hiJ).2.1
+  have hjop := (Finset.mem_filter.mp hjJ).2.1
+  have hj := Finset.mem_range.mp (Finset.mem_filter.mp hjJ).1
+  refine ⟨real_cone_lt C i j hj hc,?_⟩
+  obtain ⟨k,hk,hr,hpath⟩ := cone_read_predecessor C i j hj hc
+  have hk' : k < C.gates.length := by omega
+  rcases cone_and_atom_or_intermediate C hAO i k hk' hiop hpath with
+    hm | ⟨a,hia,hak,haop,hac⟩
+  · exact ⟨n+k,hr,hm⟩
+  · have haj : InCone n C a j := cone_of_read C j k a hj hk hr hac
+    have haJ := cone_and_is_junk G C htop a j hj haop hjop haj
+    rw [hJ] at haJ
+    have hcase : a = i ∨ a = j := by simpa using haJ
+    omega
+
+theorem nested_junk_numbered_operand {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (i j : Nat) (hJ : PEqualNP.TopForm.junk G C = {i,j})
+    (hc : InCone n C i j) :
+    i < j ∧ ∃ w ∈ (gateAt C j).inputs,
+      sourceCode G C (n+i) ∈ numberedSupport G C w := by
+  obtain ⟨hij,w,hw,hm⟩ := nested_junk_operand G C hAO htop i j hJ hc
+  exact ⟨hij,w,hw,Finset.mem_image.mpr ⟨n+i,hm,rfl⟩⟩
+
+end L2260FirstMerge
