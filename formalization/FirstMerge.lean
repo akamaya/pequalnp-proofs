@@ -6934,3 +6934,205 @@ theorem h6_numbered_counts {n : Nat} (G : SimpleGraph (Fin n))
   omega
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: backwards Lambda reachability
+
+The semantic reach bit is true when a qualifying top operand reaches
+the OR in question. It satisfies the exact backwards recurrence:
+a direct qualifying leaf selects this OR, or a later reached OR
+selects it. Physical order and padded OR-slot order agree.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem or_reaches_transitive {n : Nat} (C : Circuit) (w j h : Nat)
+    (hw : w < n+C.gates.length) (hr : OrReaches n C w j)
+    (hh : OrReaches n C (n+j) h) : OrReaches n C w h := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      have hn := hr.1
+      let a := w-n
+      have he : w = n+a := by dsimp [a]; omega
+      have ha : a < C.gates.length := by omega
+      rw [he] at hr ⊢
+      rcases (or_reaches_step C a j ha).mp hr with hs | ⟨hop,k,hk,hread,hreach⟩
+      · subst j
+        exact hh
+      · apply (or_reaches_step C a h ha).mpr
+        exact Or.inr ⟨hop,k,hk,hread,ih (n+k) (by omega) (by omega) hreach⟩
+
+/-- Split an OR path at its final edge, the immediate reader of h. -/
+theorem or_reaches_last_edge {n : Nat} (C : Circuit) (w h : Nat)
+    (hw : w < n+C.gates.length) (hr : OrReaches n C w h) :
+    w = n+h ∨ ∃ j < C.gates.length, h < j ∧
+      (gateAt C j).op = GateOp.or ∧ n+h ∈ (gateAt C j).inputs ∧
+      OrReaches n C w j := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      have hn := hr.1
+      let a := w-n
+      have he : w = n+a := by dsimp [a]; omega
+      have ha : a < C.gates.length := by omega
+      rw [he] at hr
+      rcases (or_reaches_step C a h ha).mp hr with hs | ⟨hop,k,hk,hread,hreach⟩
+      · exact Or.inl (by omega)
+      · rcases ih (n+k) (by omega) (by omega) hreach with hk' |
+          ⟨j,hj,hlt,hjo,hjr,hjreach⟩
+        · right
+          have heq : k = h := by omega
+          subst k
+          refine ⟨a,ha,hk,hop,hread,?_⟩
+          rw [he]
+          exact (or_reaches_step C a a ha).mpr (Or.inl rfl)
+        · right
+          refine ⟨j,hj,hlt,hjo,hjr,?_⟩
+          rw [he]
+          exact (or_reaches_step C a j ha).mpr
+            (Or.inr ⟨hop,k,hk,hread,hjreach⟩)
+
+def lambdaEligibleWire {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat) : Prop :=
+  ∃ a ∈ PEqualNP.TopForm.tops G C, ∃ b : Fin 2,
+    (numberedRawSide G C (PEqualNP.TopForm.opnd C a (1-b))).card = 1 ∧
+    PEqualNP.TopForm.opnd C a b = w
+
+def lambdaReach {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (h : Nat) : Prop :=
+  ∃ w, lambdaEligibleWire G C w ∧ OrReaches n C w h
+
+
+theorem lambda_eligible_wire_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (w : Nat) (hw : lambdaEligibleWire G C w) :
+    w < n+C.gates.length ∧ w ∈ internalSource G C := by
+  obtain ⟨a,ha,b,_,he⟩ := hw
+  have hm := Finset.mem_filter.mp ha
+  have ha' := Finset.mem_range.mp hm.1
+  obtain ⟨hin,_,_⟩ := actual_opnds C hAO a ha'
+  have hb : PEqualNP.TopForm.opnd C a b ∈ (gateAt C a).inputs := by
+    fin_cases b <;> rw [hin] <;> simp
+  rw [he] at hb
+  obtain ⟨hw',hs⟩ := internal_and_children G C hAO htop a ha' hm.2.1 w hb
+  exact ⟨by omega,hs⟩
+
+theorem lambda_reach_backwards {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (h : Nat) (hh : h ∈ internalOrGates G C) :
+    lambdaReach G C h ↔ lambdaEligibleWire G C (n+h) ∨
+      ∃ j ∈ internalOrGates G C, h < j ∧
+        n+h ∈ (gateAt C j).inputs ∧ lambdaReach G C j := by
+  have hh' := (internal_or_mem G C h hh).1
+  constructor
+  · rintro ⟨w,hw,hr⟩
+    have hw' := (lambda_eligible_wire_bound G C hmin.1 htop w hw).1
+    rcases or_reaches_last_edge C w h hw' hr with he |
+      ⟨j,hj,hlt,hop,hread,hreach⟩
+    · exact Or.inl (he ▸ hw)
+    · right
+      have hdirty : ¬ PEqualNP.TopForm.BelowF G C h := by
+        have hm := hh
+        rw [internal_or_eq_orN G C hmin htop] at hm
+        exact (Finset.mem_filter.mp hm).2.2
+      have hd := dirty_or_reader_dirty G C hmin.1 h j hdirty hj hop hread
+      have hmem := dirty_or_internal G C hmin htop j
+        (Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,hd⟩)
+      exact ⟨j,hmem,hlt,hread,w,hw,hreach⟩
+  · rintro (hd | ⟨j,hj,hlt,hread,w,hw,hr⟩)
+    · exact ⟨n+h,hd,(or_reaches_step C h h hh').mpr (Or.inl rfl)⟩
+    · obtain ⟨hj',hop,_⟩ := internal_or_mem G C j hj
+      have hreach : OrReaches n C (n+j) h :=
+        (or_reaches_step C j h hj').mpr
+          (Or.inr ⟨hop,h,hlt,hread,(or_reaches_step C h h hh').mpr (Or.inl rfl)⟩)
+      exact ⟨w,hw,or_reaches_transitive C w j h
+        (lambda_eligible_wire_bound G C hmin.1 htop w hw).1 hr hreach⟩
+
+theorem numbered_lambda_reach_iff {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (h : Nat) :
+    h ∈ numberedLambda G C ↔ h ∈ internalOrGates G C ∧
+      (numberedRawSide G C (PEqualNP.TopForm.opnd C h 0)).Nonempty ∧
+      (numberedRawSide G C (PEqualNP.TopForm.opnd C h 1)).Nonempty ∧
+      lambdaReach G C h := by
+  classical
+  simp only [numberedLambda,Finset.mem_filter]
+  constructor
+  · rintro ⟨hh,h0,h1,a,ha,b,hc,hr⟩
+    exact ⟨hh,h0,h1,_,⟨a,ha,b,hc,rfl⟩,hr⟩
+  · rintro ⟨hh,h0,h1,w,⟨a,ha,b,hc,he⟩,hr⟩
+    exact ⟨hh,h0,h1,a,ha,b,hc,he.symm ▸ hr⟩
+
+def paddedOrSlot {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m h : Nat) : Nat :=
+  m-(internalOrGates G C).card + indexRank (internalOrGates G C) h
+
+theorem padded_or_slot_active {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m h : Nat)
+    (hm : (internalOrGates G C).card ≤ m) (hh : h ∈ internalOrGates G C) :
+    activeSlot m (internalOrGates G C).card (paddedOrSlot G C m h) = true := by
+  have hb := index_rank_lt_card _ h hh
+  simp only [activeSlot,paddedOrSlot,decide_eq_true_eq]
+  omega
+
+theorem padded_or_slot_strict {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m h j : Nat)
+    (hh : h ∈ internalOrGates G C) (hlt : h < j) :
+    paddedOrSlot G C m h < paddedOrSlot G C m j := by
+  have hb := index_rank_strict _ h j hh hlt
+  unfold paddedOrSlot
+  omega
+
+theorem padded_or_slot_injective {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m h j : Nat)
+    (hh : h ∈ internalOrGates G C) (hj : j ∈ internalOrGates G C)
+    (he : paddedOrSlot G C m h = paddedOrSlot G C m j) : h = j := by
+  unfold paddedOrSlot at he
+  exact index_rank_injective _ h j hh hj (by omega)
+
+theorem padded_or_code_eq {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m h : Nat)
+    (hh : h ∈ internalOrGates G C) :
+    paddedCode (n+(PEqualNP.TopForm.junk G C).card)
+      (m-(internalOrGates G C).card) (sourceCode G C (n+h)) =
+      n+(PEqualNP.TopForm.junk G C).card+paddedOrSlot G C m h := by
+  rw [source_code_or G C h hh]
+  unfold paddedCode paddedOrSlot
+  split <;> omega
+
+noncomputable def paddedLambdaSlots {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m : Nat) : Finset Nat :=
+  (numberedLambda G C).image (paddedOrSlot G C m)
+
+theorem padded_lambda_slots_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m : Nat) :
+    (paddedLambdaSlots G C m).card = (numberedLambda G C).card := by
+  classical
+  unfold paddedLambdaSlots
+  apply Finset.card_image_of_injOn
+  intro h hh j hj he
+  exact padded_or_slot_injective G C m h j
+    ((numbered_lambda_reach_iff G C h).mp hh).1
+    ((numbered_lambda_reach_iff G C j).mp hj).1 he
+
+theorem padded_lambda_slots_active {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (m : Nat)
+    (hm : (internalOrGates G C).card ≤ m) :
+    paddedLambdaSlots G C m ⊆
+      (Finset.range m).filter (fun h => activeSlot m (internalOrGates G C).card h = true) := by
+  classical
+  intro z hz
+  obtain ⟨h,hh,rfl⟩ := Finset.mem_image.mp hz
+  have ha := padded_or_slot_active G C m h hm
+    ((numbered_lambda_reach_iff G C h).mp hh).1
+  have hb := ha
+  simp only [activeSlot,decide_eq_true_eq] at hb
+  exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hb.2,ha⟩
+
+end L2260FirstMerge
