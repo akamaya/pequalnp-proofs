@@ -1199,7 +1199,7 @@ theorem incompatible_edges_bound {n : Nat} (G : SimpleGraph (Fin n))
     ⟨Classical.choose (hex e),(Classical.choose_spec (hex e)).1⟩
   have hg (e : E) : GateCross C (chooseGate e).val e.val.1 e.val.2 :=
     (Classical.choose_spec (hex e)).2
-  apply Finset.card_le_card_of_injective chooseGate
+  apply Finset.card_le_card_of_injective (f := chooseGate)
   intro e f h
   apply Subtype.ext
   by_contra hne
