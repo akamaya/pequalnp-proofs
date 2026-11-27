@@ -1487,8 +1487,8 @@ theorem symbolic_leaf_kind {n : Nat} (C : Circuit)
       by_cases h : Expandable n C w
       · rw [symbolic_expand n C w h] at ha
         rcases Finset.mem_union.mp ha with ha | ha
-        · exact ih _ h.2.2.2.1 (by omega) ha
-        · exact ih _ h.2.2.2.2 (by omega) ha
+        · exact ih _ h.2.2.2.1 (Nat.lt_trans h.2.2.2.1 hw) ha
+        · exact ih _ h.2.2.2.2 (Nat.lt_trans h.2.2.2.2 hw) ha
       · rw [symbolic_atom n C w h] at ha
         have he : a = w := Finset.mem_singleton.mp ha
         subst a
