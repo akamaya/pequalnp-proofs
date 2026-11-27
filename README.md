@@ -671,3 +671,11 @@ WSL commit b2214bf confirmed LEAN SYMBOLIC SUPPORT CHECK OK (exit 0; warnings on
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN JUNK OPERAND CHECK OK"
 ```
+
+### Full symbolic evaluation and exact atom universe
+
+WSL commit a003bbd confirmed LEAN JUNK OPERAND CHECK OK (exit 0; warnings only). The official cone bridge and exclusion of clean AND atoms from actual AND operands are verified. Added symbolic_nonempty, symbolic_eval (all Boolean inputs), atomUniverse, atom_universe_card, and_operand_support_subset, and_operand_atom_bound, atom_dirty_witness and raw_junk_or_dirty. The intended approach is to build the auxiliary partition on raw/junk-only supports, including all AND operands, charging only relevant ORs to orN. This avoids assuming that every gate feeds the output at this stage. The new section has not yet been compiled. Full auxiliary partition, component budgets, normalization (including removal of unused gates), CNF reduction and certificates remain pending. No SAT source or checkpoint changes.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN ATOM UNIVERSE CHECK OK"
+```
