@@ -2487,3 +2487,202 @@ theorem circuit_component_budgets {n : Nat} (G : SimpleGraph (Fin n))
   exact ⟨l,hi,fun c => component_local_cost_bound G C _ l hb c⟩
 
 end L2260FirstMerge
+
+
+/-! ## Cancel bearing-junk charges from the local budget
+
+Keep the same labeling for every closed subset and every AND operand.
+Bearing junk atoms may consume their own attachment charge, but raw
+inputs and nonbearing junk must be paid for by dirty ORs. This is
+a necessary condition only; it does not yet justify the normalized CNF.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+attribute [local instance] gateOpDecEq
+
+def localDirtyOrGates {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) : Finset Nat :=
+  (Finset.range C.gates.length).filter fun i =>
+    (gateAt C i).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C i ∧
+      symbolicSupport n C (n+i) ⊆ V
+
+def localBearingGates {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) : Finset Nat :=
+  (Finset.range C.gates.length).filter fun i =>
+    i ∈ PEqualNP.TopForm.junk G C ∧
+      (effectiveSingletons (n := n) C (n+i)).Nonempty ∧ n+i ∈ V
+
+def localBearingAtoms {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) : Finset Nat :=
+  (localBearingGates G C V).image (fun i => n+i)
+
+def localFreeAtoms {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) : Finset Nat :=
+  V \ localBearingAtoms G C V
+
+theorem local_bearing_atoms_subset {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) :
+    localBearingAtoms G C V ⊆ V := by
+  intro a ha
+  obtain ⟨i,hi,he⟩ := Finset.mem_image.mp ha
+  have h := (Finset.mem_filter.mp hi).2.2.2
+  rw [← he]
+  exact h
+
+theorem local_bearing_atoms_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) :
+    (localBearingAtoms G C V).card = (localBearingGates G C V).card := by
+  unfold localBearingAtoms
+  apply Finset.card_image_of_injective
+  intro a b h
+  change n+a = n+b at h
+  omega
+
+theorem local_aux_cost_split_le {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) :
+    localAuxCost G C V C.gates.length ≤
+      (localDirtyOrGates G C V).card + (localBearingGates G C V).card := by
+  have he : ((Finset.range C.gates.length).filter (LocalAuxCharge G C V)) =
+      localDirtyOrGates G C V ∪ localBearingGates G C V := by
+    ext i
+    simp only [localDirtyOrGates, localBearingGates, LocalAuxCharge,
+      Finset.mem_filter, Finset.mem_union]
+    tauto
+  unfold localAuxCost
+  rw [he]
+  exact Finset.card_union_le _ _
+
+theorem local_free_atoms_card_add {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) :
+    (localFreeAtoms G C V).card + (localBearingGates G C V).card = V.card := by
+  have hs := local_bearing_atoms_subset G C V
+  have hd : Disjoint (localFreeAtoms G C V) (localBearingAtoms G C V) := by
+    apply Finset.disjoint_left.mpr
+    intro a ha hb
+    exact (Finset.mem_sdiff.mp ha).2 hb
+  have hu : localFreeAtoms G C V ∪ localBearingAtoms G C V = V := by
+    ext a
+    constructor
+    · intro ha
+      rcases Finset.mem_union.mp ha with hf | hb
+      · exact (Finset.mem_sdiff.mp hf).1
+      · exact hs hb
+    · intro ha
+      by_cases hb : a ∈ localBearingAtoms G C V
+      · exact Finset.mem_union.mpr (Or.inr hb)
+      · exact Finset.mem_union.mpr (Or.inl (Finset.mem_sdiff.mpr ⟨ha,hb⟩))
+  have h := Finset.card_union_of_disjoint hd
+  rw [hu, local_bearing_atoms_card G C V] at h
+  exact h.symm
+
+/-- All raw inputs and all nonbearing junk atoms in V remain after
+cancelling the attachment charges. -/
+theorem mem_local_free_of_raw_or_empty {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) (a : Nat)
+    (ha : a ∈ V)
+    (hf : a < n ∨ ¬ (effectiveSingletons (n := n) C a).Nonempty) :
+    a ∈ localFreeAtoms G C V := by
+  apply Finset.mem_sdiff.mpr
+  refine ⟨ha,?_⟩
+  intro hb
+  obtain ⟨i,hi,he⟩ := Finset.mem_image.mp hb
+  rcases hf with hraw | hempty
+  · change n+i = a at he
+    omega
+  · apply hempty
+    rw [← he]
+    exact (Finset.mem_filter.mp hi).2.2.1
+
+theorem local_dirty_or_subset {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (V : Finset Nat) :
+    localDirtyOrGates G C V ⊆ PEqualNP.TopForm.orN G C := by
+  intro i hi
+  have h := Finset.mem_filter.mp hi
+  exact Finset.mem_filter.mpr ⟨h.1,h.2.1,h.2.2.1⟩
+
+/-- Stronger than a separate per-class bound: the cancellation is valid
+simultaneously for every union of label classes. -/
+theorem closed_subset_or_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l) (V : Finset Nat)
+    (hV : V ⊆ atomUniverse G C) (hc : ClassClosed (atomUniverse G C) V l) :
+    (localFreeAtoms G C V).card ≤ atomRank V l + (localDirtyOrGates G C V).card := by
+  have h := hb V hV hc
+  have hs := local_aux_cost_split_le G C V
+  have he := local_free_atoms_card_add G C V
+  omega
+
+theorem component_or_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l) (c : Nat) :
+    (localFreeAtoms G C (atomClass (atomUniverse G C) l c)).card ≤
+      1 + (localDirtyOrGates G C (atomClass (atomUniverse G C) l c)).card := by
+  have h := closed_subset_or_budget G C l hb (atomClass (atomUniverse G C) l c)
+    (Finset.filter_subset _ _) (atom_class_closed _ _ _)
+  have hr := atom_class_rank_le_one (atomUniverse G C) l c
+  omega
+
+/-- Restrict to the union of all classes containing an original input.
+Its rank is at most the number of original-input labels. No new
+labeling or assumption on exactly two junk gates is required. -/
+theorem raw_rank_or_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l) :
+    n ≤ ((Finset.range n).image l).card + (PEqualNP.TopForm.orN G C).card := by
+  classical
+  let R := (Finset.range n).image l
+  let V := (atomUniverse G C).filter fun a => l a ∈ R
+  have hV : V ⊆ atomUniverse G C := Finset.filter_subset _ _
+  have hc : ClassClosed (atomUniverse G C) V l := by
+    intro x hx y hy he
+    have h := (Finset.mem_filter.mp hx).2
+    exact Finset.mem_filter.mpr ⟨hy,he ▸ h⟩
+  have hraw : Finset.range n ⊆ localFreeAtoms G C V := by
+    intro a ha
+    have hlt := Finset.mem_range.mp ha
+    have hu : a ∈ atomUniverse G C := Finset.mem_union.mpr (Or.inl ha)
+    have hR : l a ∈ R := Finset.mem_image.mpr ⟨a,ha,rfl⟩
+    have hm : a ∈ V := Finset.mem_filter.mpr ⟨hu,hR⟩
+    exact mem_local_free_of_raw_or_empty G C V a hm (Or.inl hlt)
+  have hrank : atomRank V l ≤ R.card := by
+    apply Finset.card_le_card
+    intro z hz
+    obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+    rw [← he]
+    exact (Finset.mem_filter.mp ha).2
+  have hcard := Finset.card_le_card hraw
+  rw [Finset.card_range] at hcard
+  have hor := Finset.card_le_card (local_dirty_or_subset G C V)
+  have h := closed_subset_or_budget G C l hb V hV hc
+  change n ≤ R.card + (PEqualNP.TopForm.orN G C).card
+  omega
+
+/-- Keep all necessary conditions under one common existential label.
+In particular, both symbolic supports and effective singleton supports
+of every actual AND operand are local in this same partition. -/
+theorem circuit_or_budgets {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) :
+    ∃ l : Nat → Nat, AuxInvariant G C C.gates.length l ∧
+      LocalBudget G C C.gates.length l ∧
+      n ≤ ((Finset.range n).image l).card + (PEqualNP.TopForm.orN G C).card ∧
+      (∀ c : Nat,
+        (localFreeAtoms G C (atomClass (atomUniverse G C) l c)).card ≤
+          1 + (localDirtyOrGates G C (atomClass (atomUniverse G C) l c)).card) ∧
+      (∀ j < C.gates.length, (gateAt C j).op = GateOp.and →
+        ∀ w ∈ (gateAt C j).inputs,
+          SupportLocal l (symbolicSupport n C w) ∧
+          SupportLocal (fun u : Fin n => l u.val) (effectiveSingletons C w)) := by
+  obtain ⟨l,hi,hb⟩ := auxiliary_local_budget G C hAO htop C.gates.length (Nat.le_refl _)
+  refine ⟨l,hi,hb,raw_rank_or_budget G C l hb,fun c => component_or_budget G C l hb c,?_⟩
+  intro j hj hop w hw
+  have hs := and_operand_support_subset G C hAO htop j hj hop w hw
+  have hlt := hAO.2.1 j hj w hw
+  have hlt' : w < n+C.gates.length := by omega
+  exact ⟨hi.1 w hlt' hs,aux_effective_local G C hAO C.gates.length l hi w hlt' hs⟩
+
+end L2260FirstMerge
