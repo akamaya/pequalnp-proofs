@@ -647,3 +647,11 @@ WSL commit 2e31d01: LEAN CIRCUIT COMPONENT CHECK OK (exit 0; warnings only). The
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN INCOMPATIBLE EDGES CHECK OK"
 ```
+
+### Auxiliary atom locality and rank
+
+WSL commit 25e8cdd confirmed LEAN INCOMPATIBLE EDGES CHECK OK (exit 0, warnings only). The actual circuit incompatible-edge cardinality bound is verified. Added atomEffective, AtomLinked, atom_effective_local, atom_effective_union, attach_junk, merge_sequence_count, two_junk_labels_count and auxiliary_rank_tight. They give the abstract auxiliary-atom construction ingredients: linked singleton semantics, one merge per bearing junk attachment, rank bound per merge, and class count with two junk labels. New lemmas not yet compiled; still need to instantiate with actual symbolic OR closures and prove per-component OR budgets and normalization. No SAT source or checkpoint changes.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN AUXILIARY ATOM CHECK OK"
+```
