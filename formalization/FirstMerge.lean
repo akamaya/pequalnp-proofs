@@ -3948,7 +3948,7 @@ theorem least_no_earlier_equal {n : Nat} (G : SimpleGraph (Fin n))
   let D := deletedCircuit n C pre post rep
   have hAO : PEqualNP.TopForm.IsAO2 n D :=
     deleted_circuit_ao C hmin.1 pre post g rep he hr'
-  have hf : circuitFun n D = graphFun G ∅ := by
+  have hf : PEqualNP.MetaComplexity.circuitFun n D = graphFun G ∅ := by
     funext x
     change D.eval (List.ofFn x) = graphFun G ∅ x
     exact (deleted_circuit_eval C pre post g rep he hr' hv x).trans
