@@ -1503,3 +1503,167 @@ theorem symbolic_leaf_kind {n : Nat} (C : Circuit)
             exact False.elim (h hx)
 
 end L2260FirstMerge
+
+/-! ## Connecting symbolic leaves to the official strict cone
+
+TopForm forbids a clean AND inside any AND's strict cone. In this
+section we prove that an AND leaf of an operand's symbolic support is
+in that cone. Dirty ORs not yet known to feed an AND require a further
+minimality/output argument.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+private theorem generic_getD_snoc {α : Type} (xs : List α) (x d : α) (i : Nat) :
+    (xs ++ [x]).getD i d = if i = xs.length then x else xs.getD i d := by
+  induction xs generalizing i with
+  | nil => cases i <;> simp
+  | cons a xs ih =>
+      cases i with
+      | zero => simp
+      | succ i =>
+          simpa only [List.cons_append, List.getD_cons_succ,
+            List.length_cons, Nat.succ.injEq] using ih i
+
+private theorem cone_fold_length (n : Nat) (gs : List Gate) (cs : List (List Nat)) :
+    (gs.foldl (coneStep n) cs).length = cs.length + gs.length := by
+  induction gs generalizing cs with
+  | nil => simp
+  | cons g gs ih =>
+      change (gs.foldl (coneStep n) (coneStep n cs g)).length = _
+      rw [ih]
+      simp [coneStep] <;> omega
+
+private theorem cone_fold_preserves (n : Nat) (gs : List Gate) (cs : List (List Nat))
+    (i : Nat) (hi : i < cs.length) :
+    (gs.foldl (coneStep n) cs).getD i [] = cs.getD i [] := by
+  induction gs generalizing cs with
+  | nil => rfl
+  | cons g gs ih =>
+      change (gs.foldl (coneStep n) (coneStep n cs g)).getD i [] = _
+      have hi' : i < (coneStep n cs g).length := by
+        simp [coneStep] <;> omega
+      rw [ih _ hi']
+      unfold coneStep
+      rw [generic_getD_snoc]
+      simp [Nat.ne_of_lt hi]
+
+/-- Every earlier gate read by a gate belongs to its strict cone,
+as do all gates in the earlier gate's cone. -/
+theorem cone_of_read {n : Nat} (C : Circuit) (j k i : Nat)
+    (hj : j < C.gates.length) (hk : k < j)
+    (hread : n+k ∈ (gateAt C j).inputs)
+    (hi : i = k ∨ InCone n C i k) : InCone n C i j := by
+  obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj
+  have hat : gateAt C j = g := by
+    unfold gateAt
+    rw [hg, ← hpre]
+    exact split_getD pre post g _
+  let cs := pre.foldl (coneStep n) []
+  have hlen : cs.length = j := by
+    dsimp [cs]
+    rw [cone_fold_length, hpre]
+    simp
+  have hkcs : k < cs.length := by omega
+  have hjcs : j < (coneStep n cs g).length := by
+    simp [coneStep, hlen]
+  have hpast : (cones n C).getD k [] = cs.getD k [] := by
+    unfold cones
+    rw [hg, List.foldl_append]
+    change ((g :: post).foldl (coneStep n) cs).getD k [] = _
+    exact cone_fold_preserves n (g :: post) cs k hkcs
+  unfold InCone cones
+  rw [hg, List.foldl_append]
+  change i ∈ (post.foldl (coneStep n) (coneStep n cs g)).getD j []
+  rw [cone_fold_preserves n post _ j hjcs]
+  unfold coneStep
+  rw [generic_getD_snoc, hlen, if_pos rfl]
+  apply List.mem_flatMap.mpr
+  refine ⟨n+k,?_,?_⟩
+  · apply List.mem_filter.mpr
+    refine ⟨hat ▸ hread,?_⟩
+    simp only [decide_eq_true_eq]
+    omega
+  · have he : n+k-n = k := by omega
+    rw [he]
+    rcases hi with hi | hi
+    · exact List.mem_cons.mpr (Or.inl hi)
+    · apply List.mem_cons.mpr
+      right
+      change i ∈ (cones n C).getD k [] at hi
+      rw [hpast] at hi
+      exact hi
+
+/-- A symbolic AND leaf is either the root gate itself or lies in
+its strict cone. This is a structural statement, independent of
+singleton truth. -/
+theorem symbolic_leaf_cone {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w : Nat)
+    (hw : w < n+C.gates.length) (i : Nat)
+    (hi : n+i ∈ symbolicSupport n C w) :
+    w = n+i ∨ ∃ j < C.gates.length, w = n+j ∧ InCone n C i j := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases h : Expandable n C w
+      · obtain ⟨hn,_,hop,ha,hb⟩ := h
+        have hj : w-n < C.gates.length := by omega
+        have he : w = n+(w-n) := by omega
+        have hinput := (actual_opnds C hAO (w-n) hj).1
+        have extend (z : Nat) (hz : z < w) (hr : z ∈ (gateAt C (w-n)).inputs)
+            (hm : n+i ∈ symbolicSupport n C z) :
+            w = n+i ∨ ∃ j < C.gates.length, w = n+j ∧ InCone n C i j := by
+          refine Or.inr ⟨w-n,hj,he,?_⟩
+          rcases ih z hz (Nat.lt_trans hz hw) hm with hs | ⟨k,hk,hz',hc⟩
+          · have hik : i < w-n := by omega
+            exact cone_of_read C (w-n) i i hj hik (hs ▸ hr) (Or.inl rfl)
+          · have hkj : k < w-n := by omega
+            exact cone_of_read C (w-n) k i hj hkj (hz' ▸ hr) (Or.inr hc)
+        rw [symbolic_expand n C w ⟨hn,hw,hop,ha,hb⟩] at hi
+        rcases Finset.mem_union.mp hi with hi | hi
+        · apply extend _ ha _ hi
+          rw [hinput]
+          simp
+        · apply extend _ hb _ hi
+          rw [hinput]
+          simp
+      · rw [symbolic_atom n C w h] at hi
+        exact Or.inl (Finset.mem_singleton.mp hi).symm
+
+/-- All AND atoms in an AND operand's OR support are dirty under
+the official TopForm assumption. -/
+theorem and_operand_atoms_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) (j : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (w : Nat) (hr : w ∈ (gateAt C j).inputs)
+    (i : Nat) (hi : n+i ∈ symbolicSupport n C w)
+    (hiop : (gateAt C i).op = GateOp.and) :
+    i ∈ PEqualNP.TopForm.junk G C := by
+  have hw := hAO.2.1 j hj w hr
+  have hreal : w < n+C.gates.length := by omega
+  have hle := symbolic_leaf_le n C w (n+i) hi
+  have hil : i < C.gates.length := by omega
+  have hc : InCone n C i j := by
+    rcases symbolic_leaf_cone C hAO w hreal i hi with he | ⟨k,hk,he,hc⟩
+    · have hij : i < j := by omega
+      exact cone_of_read C j i i hj hij (he ▸ hr) (Or.inl rfl)
+    · have hkj : k < j := by omega
+      exact cone_of_read C j k i hj hkj (he ▸ hr) (Or.inr hc)
+  have hd : ¬ PEqualNP.TopForm.BelowF G C i := by
+    intro hclean
+    exact htop i hil j hj hiop hclean hop hc
+  have hex : ∃ x : Fin n → Bool, gateVal n C i x = true ∧ graphFun G ∅ x = false := by
+    classical
+    unfold PEqualNP.TopForm.BelowF at hd
+    push_neg at hd
+    obtain ⟨x,hx,hf⟩ := hd
+    exact ⟨x,hx,by cases h : graphFun G ∅ x <;> simp_all⟩
+  exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hil,hiop,hil,hex⟩
+
+end L2260FirstMerge
