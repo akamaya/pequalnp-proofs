@@ -3149,3 +3149,181 @@ theorem normalized_and_eval {n : Nat} (C : Circuit)
   rw [hv,Bool.and_eq_true_iff,symbolic_eval C hAO x _,symbolic_eval C hAO x _]
 
 end L2260FirstMerge
+
+
+/-! ## Normalization: the shared internal OR DAG
+
+Use actual wire indices as names for now. Each retained OR is counted
+once, regardless of fanout or the number of AND operands using it.
+Retaining every raw/junk-only OR (even an unused one) is safe for this
+structural step. Dense numbering and minimum-circuit cuts are separate.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def internalOrGates {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset Nat :=
+  localDirtyOrGates G C (atomUniverse G C)
+
+def internalOrWires {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset Nat :=
+  (internalOrGates G C).image (fun i => n+i)
+
+def internalSource {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset Nat :=
+  atomUniverse G C ∪ internalOrWires G C
+
+theorem internal_or_mem {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hj : j ∈ internalOrGates G C) :
+    j < C.gates.length ∧ (gateAt C j).op = GateOp.or ∧
+      symbolicSupport n C (n+j) ⊆ atomUniverse G C := by
+  have h : j ∈ localDirtyOrGates G C (atomUniverse G C) := hj
+  have hm := Finset.mem_filter.mp h
+  exact ⟨Finset.mem_range.mp hm.1,hm.2.1,hm.2.2.2⟩
+
+theorem internal_or_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (internalOrGates G C).card ≤ (PEqualNP.TopForm.orN G C).card := by
+  exact Finset.card_le_card (local_dirty_or_subset G C (atomUniverse G C))
+
+theorem internal_or_wire_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (internalOrWires G C).card = (internalOrGates G C).card := by
+  unfold internalOrWires
+  apply Finset.card_image_of_injective
+  intro a b h
+  change n+a = n+b at h
+  omega
+
+theorem atom_internal_or_disjoint {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    Disjoint (atomUniverse G C) (internalOrWires G C) := by
+  apply Finset.disjoint_left.mpr
+  intro w ha ho
+  obtain ⟨j,hj,he⟩ := Finset.mem_image.mp ho
+  have hop := (internal_or_mem G C j hj).2.1
+  rcases Finset.mem_union.mp ha with hr | hd
+  · have hlt := Finset.mem_range.mp hr
+    change n+j = w at he
+    omega
+  · obtain ⟨i,hi,hei⟩ := Finset.mem_image.mp hd
+    change n+i = w at hei
+    change n+j = w at he
+    have hij : i = j := by omega
+    subst i
+    have hd' : IsDirtyAnd n G C j := (Finset.mem_filter.mp hi).2
+    have ha' := hd'.1
+    rw [hop] at ha'
+    contradiction
+
+theorem internal_source_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (internalSource G C).card =
+      n + (PEqualNP.TopForm.junk G C).card + (internalOrGates G C).card := by
+  unfold internalSource
+  rw [Finset.card_union_of_disjoint (atom_internal_or_disjoint G C),
+    atom_universe_card,internal_or_wire_card]
+
+/-- A real wire with raw/junk-only support is either an atom or a
+retained physical OR. In the atom case its support is a singleton. -/
+theorem classify_internal_source {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) :
+    (w ∈ atomUniverse G C ∧ symbolicSupport n C w = {w}) ∨
+      ∃ j ∈ internalOrGates G C, w = n+j := by
+  by_cases he : Expandable n C w
+  · have hj : w-n < C.gates.length := by
+      have h := he.1
+      omega
+    have hidx : n+(w-n) = w := by
+      have h := he.1
+      omega
+    have hop := he.2.2.1
+    have hs' : symbolicSupport n C (n+(w-n)) ⊆ atomUniverse G C := by
+      rw [hidx]
+      exact hs
+    have hd := raw_junk_or_dirty G C hAO (w-n) hj hop hs'
+    have hm : w-n ∈ internalOrGates G C := by
+      change w-n ∈ localDirtyOrGates G C (atomUniverse G C)
+      exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,
+        (Finset.mem_filter.mp hd).2.2,hs'⟩
+    exact Or.inr ⟨w-n,hm,hidx.symm⟩
+  · have h := symbolic_atom n C w he
+    have hm : w ∈ symbolicSupport n C w := by
+      rw [h]
+      exact Finset.mem_singleton.mpr rfl
+    exact Or.inl ⟨hs hm,h⟩
+
+theorem mem_internal_source {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) :
+    w ∈ internalSource G C := by
+  rcases classify_internal_source G C hAO w hw hs with h | ⟨j,hj,he⟩
+  · exact Finset.mem_union.mpr (Or.inl h.1)
+  · exact Finset.mem_union.mpr (Or.inr (Finset.mem_image.mpr ⟨j,hj,he.symm⟩))
+
+/-- Both children of a retained OR are valid internal sources with
+strictly earlier physical indices. Their support union is exactly
+the support recorded at this shared OR node. -/
+theorem internal_or_children {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hj : j ∈ internalOrGates G C) :
+    ∃ a b, (gateAt C j).inputs = [a,b] ∧ a < n+j ∧ b < n+j ∧
+      a ∈ internalSource G C ∧ b ∈ internalSource G C ∧
+      symbolicSupport n C (n+j) = symbolicSupport n C a ∪ symbolicSupport n C b := by
+  obtain ⟨hlt,hop,hs⟩ := internal_or_mem G C j hj
+  obtain ⟨hin,ha,hb⟩ := actual_opnds C hAO j hlt
+  let a := PEqualNP.TopForm.opnd C j 0
+  let b := PEqualNP.TopForm.opnd C j 1
+  have hu : symbolicSupport n C (n+j) = symbolicSupport n C a ∪ symbolicSupport n C b := by
+    have he := symbolic_expand n C (n+j) (real_or_expandable C hAO j hlt hop)
+    have hidx : n+j-n = j := by omega
+    simpa [a,b,hidx] using he
+  have hA : symbolicSupport n C a ⊆ atomUniverse G C := by
+    intro x hx
+    apply hs
+    rw [hu]
+    exact Finset.mem_union.mpr (Or.inl hx)
+  have hB : symbolicSupport n C b ⊆ atomUniverse G C := by
+    intro x hx
+    apply hs
+    rw [hu]
+    exact Finset.mem_union.mpr (Or.inr hx)
+  have ha' : a < n+j := ha
+  have hb' : b < n+j := hb
+  exact ⟨a,b,hin,ha',hb',
+    mem_internal_source G C hAO a (by omega) hA,
+    mem_internal_source G C hAO b (by omega) hB,hu⟩
+
+/-- Every AND reads two nodes of the same shared source network. -/
+theorem internal_and_children {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and) :
+    ∀ w ∈ (gateAt C j).inputs, w < n+j ∧ w ∈ internalSource G C := by
+  intro w hw
+  have hlt := hAO.2.1 j hj w hw
+  exact ⟨hlt,mem_internal_source G C hAO w (by omega)
+    (and_operand_support_subset G C hAO htop j hj hop w hw)⟩
+
+/-- In a two-junk case the retained source pool has at most n+2+r
+nodes, where r is the actual dirty OR count. The count is of physical
+OR nodes, not separate expansions of each occurrence. -/
+theorem two_junk_source_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (h2 : (PEqualNP.TopForm.junk G C).card = 2) :
+    (internalSource G C).card ≤ n+2+(PEqualNP.TopForm.orN G C).card := by
+  rw [internal_source_card,h2]
+  have h := internal_or_budget G C
+  omega
+
+end L2260FirstMerge
