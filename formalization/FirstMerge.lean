@@ -2063,6 +2063,7 @@ theorem auxiliary_prefix_labels {n : Nat} (G : SimpleGraph (Fin n))
             · have h := Finset.mem_range.mp hraw
               omega
             · obtain ⟨k,hk,he⟩ := Finset.mem_image.mp hjunk
+              change n+k = n+j at he
               have he' : k = j := by omega
               simpa [he'] using hk
           obtain ⟨l',hp,hlink,hmerge⟩ :=
@@ -2092,6 +2093,7 @@ theorem auxiliary_prefix_labels {n : Nat} (G : SimpleGraph (Fin n))
           · have h := Finset.mem_range.mp hraw
             omega
           · obtain ⟨k,hk,he⟩ := Finset.mem_image.mp hjunk
+            change n+k = n+j at he
             have he' : k = j := by omega
             subst k
             have hdirty : IsDirtyAnd n G C j := (Finset.mem_filter.mp hk).2
