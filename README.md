@@ -503,3 +503,13 @@ Lean形式検証・UNSAT証明書検証は未完。
 ```bash
 cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --top-count 7 --or-count 6 --jobs 8 --seconds 5 --solver cadical195
 ```
+
+### Sweep v2 WSL result: (7,6)
+
+31692分割中30312 UNSAT、1380 TIMEOUT、SAT 0、8512.113秒（8並列、5秒/cube、cadical195）。全ログ1701行を集計。b=5/slack=0: 20175中48 TIMEOUT、b=6/slack=1: 11435中1332 TIMEOUT、b=7/slack=2:82全UNSAT。暫定94/100のまま。
+
+既存SQLite checkpointを再利用し、残存1380分割のみ30秒/cubeで再探索する。コード変更なし。全件TIMEOUTの場合、8並列で約87分＋オーバーヘッド。Lean形式化・UNSAT証明書検証は未完。
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --top-count 7 --or-count 6 --jobs 8 --seconds 30 --solver cadical195
+```
