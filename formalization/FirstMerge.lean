@@ -7140,3 +7140,261 @@ theorem padded_lambda_slots_active {n : Nat} (G : SimpleGraph (Fin n))
   exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hb.2,ha⟩
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: support mask symmetry
+
+The v14/v19 AND operands are ordered by numerical support mask,
+not by source index. OR operands retain increasing selector order.
+The terminal tops can then be permuted by the smaller operand mask.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def supportMask (S : Finset Nat) : Nat → Nat
+  | 0 => 0
+  | q+1 => supportMask S q + if q ∈ S then 2^q else 0
+
+theorem support_mask_bound (S : Finset Nat) (q : Nat) :
+    supportMask S q < 2^q := by
+  induction q with
+  | zero => simp [supportMask]
+  | succ q ih =>
+      rw [supportMask,pow_succ]
+      split <;> omega
+
+/-- Each more significant bit overrides the lower comparison unless
+the bits agree. This is the majority recurrence in v19.leq. -/
+theorem support_mask_le_step (A B : Finset Nat) (q : Nat) :
+    supportMask A (q+1) ≤ supportMask B (q+1) ↔
+      (¬ q ∈ A ∧ q ∈ B) ∨
+      ((q ∈ A ↔ q ∈ B) ∧ supportMask A q ≤ supportMask B q) := by
+  have ha := support_mask_bound A q
+  have hb := support_mask_bound B q
+  by_cases hA : q ∈ A <;> by_cases hB : q ∈ B <;>
+    simp [supportMask,hA,hB] <;> omega
+
+theorem support_mask_lt_step (A B : Finset Nat) (q : Nat) :
+    supportMask A (q+1) < supportMask B (q+1) ↔
+      (¬ q ∈ A ∧ q ∈ B) ∨
+      ((q ∈ A ↔ q ∈ B) ∧ supportMask A q < supportMask B q) := by
+  have ha := support_mask_bound A q
+  have hb := support_mask_bound B q
+  by_cases hA : q ∈ A <;> by_cases hB : q ∈ B <;>
+    simp [supportMask,hA,hB] <;> omega
+
+theorem support_mask_eq_bits (A B : Finset Nat) (q : Nat) :
+    supportMask A q = supportMask B q ↔
+      ∀ z < q, z ∈ A ↔ z ∈ B := by
+  induction q with
+  | zero => simp [supportMask]
+  | succ q ih =>
+      have ha := support_mask_bound A q
+      have hb := support_mask_bound B q
+      have hstep : supportMask A (q+1) = supportMask B (q+1) ↔
+          (q ∈ A ↔ q ∈ B) ∧ supportMask A q = supportMask B q := by
+        by_cases hA : q ∈ A <;> by_cases hB : q ∈ B <;>
+          simp [supportMask,hA,hB] <;> omega
+      rw [hstep,ih]
+      constructor
+      · rintro ⟨ht,hl⟩ z hz
+        by_cases he : z = q
+        · subst z
+          exact ht
+        · exact hl z (by omega)
+      · intro h
+        exact ⟨h q (by omega),fun z hz => h z (by omega)⟩
+
+theorem support_mask_injective_bounded (A B : Finset Nat) (q : Nat)
+    (ha : A ⊆ Finset.range q) (hb : B ⊆ Finset.range q)
+    (he : supportMask A q = supportMask B q) : A = B := by
+  ext z
+  by_cases hz : z < q
+  · exact (support_mask_eq_bits A B q).mp he z hz
+  · constructor
+    · intro hm
+      exact False.elim (hz (Finset.mem_range.mp (ha hm)))
+    · intro hm
+      exact False.elim (hz (Finset.mem_range.mp (hb hm)))
+
+theorem support_mask_subset_mono (A B : Finset Nat) (q : Nat)
+    (h : A ⊆ B) : supportMask A q ≤ supportMask B q := by
+  induction q with
+  | zero => simp [supportMask]
+  | succ q ih =>
+      apply (support_mask_le_step A B q).mpr
+      by_cases ha : q ∈ A
+      · exact Or.inr ⟨⟨fun _ => h ha,fun _ => ha⟩,ih⟩
+      · by_cases hb : q ∈ B
+        · exact Or.inl ⟨ha,hb⟩
+        · exact Or.inr ⟨⟨fun h' => False.elim (ha h'),
+            fun h' => False.elim (hb h')⟩,ih⟩
+
+theorem support_mask_subset_strict (A B : Finset Nat) (q : Nat)
+    (h : A ⊆ B) (hne : A ≠ B)
+    (ha : A ⊆ Finset.range q) (hb : B ⊆ Finset.range q) :
+    supportMask A q < supportMask B q := by
+  have hle := support_mask_subset_mono A B q h
+  have hn : supportMask A q ≠ supportMask B q := by
+    intro he
+    exact hne (support_mask_injective_bounded A B q ha hb he)
+  omega
+
+def andMaskKey {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat) : Nat :=
+  min
+    (supportMask (numberedSupport G C (PEqualNP.TopForm.opnd C j 0))
+      (n+(PEqualNP.TopForm.junk G C).card))
+    (supportMask (numberedSupport G C (PEqualNP.TopForm.opnd C j 1))
+      (n+(PEqualNP.TopForm.junk G C).card))
+
+theorem and_mask_ordered_pair {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.and) :
+    ∃ a b : Nat,
+      ((gateAt C j).inputs = [a,b] ∨ (gateAt C j).inputs = [b,a]) ∧
+      a ∈ internalSource G C ∧ b ∈ internalSource G C ∧
+      sourceCode G C a ≠ sourceCode G C b ∧
+      supportMask (numberedSupport G C a) (n+(PEqualNP.TopForm.junk G C).card) =
+        andMaskKey G C j ∧
+      supportMask (numberedSupport G C a) (n+(PEqualNP.TopForm.junk G C).card) <
+        supportMask (numberedSupport G C b) (n+(PEqualNP.TopForm.junk G C).card) := by
+  let a := PEqualNP.TopForm.opnd C j 0
+  let b := PEqualNP.TopForm.opnd C j 1
+  let q := n+(PEqualNP.TopForm.junk G C).card
+  have hin : (gateAt C j).inputs = [a,b] := (actual_opnds C hmin.1 j hj).1
+  have har : a ∈ (gateAt C j).inputs := by rw [hin]; simp
+  have hbr : b ∈ (gateAt C j).inputs := by rw [hin]; simp
+  have ha := (internal_and_children G C hmin.1 htop j hj hop a har).2
+  have hb := (internal_and_children G C hmin.1 htop j hj hop b hbr).2
+  have hsA := and_operand_support_subset G C hmin.1 htop j hj hop a har
+  have hsB := and_operand_support_subset G C hmin.1 htop j hj hop b hbr
+  have hne : sourceCode G C a ≠ sourceCode G C b := by
+    intro he
+    exact least_distinct_operands G C hmin j hj
+      (source_code_injective G C a b ha hb he)
+  have hm : supportMask (numberedSupport G C a) q ≠
+      supportMask (numberedSupport G C b) q := by
+    intro he
+    have hs := support_mask_injective_bounded _ _ q
+      (numbered_atom_range G C a hsA) (numbered_atom_range G C b hsB) he
+    obtain ⟨⟨z,hz,hn⟩,_⟩ :=
+      least_numbered_operand_incomparable G C hmin j a b hj hin hsA hsB
+    exact hn (hs ▸ hz)
+  rcases lt_or_gt_of_ne hm with h | h
+  · refine ⟨a,b,Or.inl hin,ha,hb,hne,?_,h⟩
+    change _ = min (supportMask (numberedSupport G C a) q)
+      (supportMask (numberedSupport G C b) q)
+    rw [min_eq_left (Nat.le_of_lt h)]
+  · refine ⟨b,a,Or.inr hin,hb,ha,hne.symm,?_,h⟩
+    change _ = min (supportMask (numberedSupport G C a) q)
+      (supportMask (numberedSupport G C b) q)
+    rw [min_eq_right (Nat.le_of_lt h)]
+
+/-- Sort a list by a numerical key without changing any element.
+The proof is independent of the actual gate numbering. -/
+def insertMaskKey (key : Nat → Nat) (a : Nat) : List Nat → List Nat
+  | [] => [a]
+  | b :: bs => if key a ≤ key b then a :: b :: bs
+    else b :: insertMaskKey key a bs
+
+theorem insert_mask_key_perm (key : Nat → Nat) (a : Nat) (L : List Nat) :
+    (insertMaskKey key a L).Perm (a :: L) := by
+  induction L with
+  | nil => simp [insertMaskKey]
+  | cons b bs ih =>
+      by_cases h : key a ≤ key b
+      · simp [insertMaskKey,h]
+      · rw [insertMaskKey,if_neg h]
+        apply (List.Perm.cons b ih).trans
+        first | exact List.Perm.swap a b bs | exact (List.Perm.swap a b bs).symm
+
+theorem insert_mask_key_sorted (key : Nat → Nat) (a : Nat) (L : List Nat)
+    (h : L.Pairwise (fun x y => key x ≤ key y)) :
+    (insertMaskKey key a L).Pairwise (fun x y => key x ≤ key y) := by
+  induction L with
+  | nil => simp [insertMaskKey]
+  | cons b bs ih =>
+      obtain ⟨hb,ht⟩ := List.pairwise_cons.mp h
+      by_cases he : key a ≤ key b
+      · rw [insertMaskKey,if_pos he]
+        apply List.pairwise_cons.mpr
+        refine ⟨?_,h⟩
+        intro c hc
+        rcases List.mem_cons.mp hc with rfl | hc
+        · exact he
+        · exact he.trans (hb c hc)
+      · rw [insertMaskKey,if_neg he]
+        apply List.pairwise_cons.mpr
+        refine ⟨?_,ih ht⟩
+        intro c hc
+        have hc' := (insert_mask_key_perm key a bs).mem_iff.mp hc
+        rcases List.mem_cons.mp hc' with rfl | hc'
+        · omega
+        · exact hb c hc'
+
+def sortMaskKey (key : Nat → Nat) : List Nat → List Nat
+  | [] => []
+  | a :: L => insertMaskKey key a (sortMaskKey key L)
+
+theorem sort_mask_key_perm (key : Nat → Nat) (L : List Nat) :
+    (sortMaskKey key L).Perm L := by
+  induction L with
+  | nil => simp [sortMaskKey]
+  | cons a L ih =>
+      exact (insert_mask_key_perm key a (sortMaskKey key L)).trans
+        (List.Perm.cons a ih)
+
+theorem sort_mask_key_sorted (key : Nat → Nat) (L : List Nat) :
+    (sortMaskKey key L).Pairwise (fun x y => key x ≤ key y) := by
+  induction L with
+  | nil => simp [sortMaskKey]
+  | cons a L ih =>
+      exact insert_mask_key_sorted key a (sortMaskKey key L) ih
+
+noncomputable def sortedTopGates {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : List Nat :=
+  sortMaskKey (andMaskKey G C) (PEqualNP.TopForm.tops G C).toList
+
+theorem sorted_top_gates_perm {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (sortedTopGates G C).Perm (PEqualNP.TopForm.tops G C).toList :=
+  sort_mask_key_perm _ _
+
+theorem sorted_top_gates_ordered {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (sortedTopGates G C).Pairwise (fun a b => andMaskKey G C a ≤ andMaskKey G C b) :=
+  sort_mask_key_sorted _ _
+
+/-- The compact solver can use physical OR ordering. For the optional
+canonical mode the mask strictly increases along every OR edge,
+so mask ordering is also a legal order for those dependencies. -/
+theorem internal_or_mask_strict {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (i j : Nat) (hi : i ∈ internalOrGates G C) (hj : j ∈ internalOrGates G C)
+    (hr : n+i ∈ (gateAt C j).inputs) :
+    supportMask (numberedSupport G C (n+i)) (n+(PEqualNP.TopForm.junk G C).card) <
+      supportMask (numberedSupport G C (n+j)) (n+(PEqualNP.TopForm.junk G C).card) := by
+  obtain ⟨hi',_,hsI⟩ := internal_or_mem G C i hi
+  obtain ⟨hj',hop,hsJ⟩ := internal_or_mem G C j hj
+  have hij := hmin.1.2.1 j hj' (n+i) hr
+  have hs := or_reader_support_subset C hmin.1 j (n+i) hj' hop hr
+  have hsub := (numbered_support_subset_iff G C (n+i) (n+j) hsI hsJ).mpr hs
+  have hne : numberedSupport G C (n+i) ≠ numberedSupport G C (n+j) := by
+    intro he
+    apply least_distinct_or_supports G C hmin i j hj' (by omega)
+    apply Finset.Subset.antisymm hs
+    apply (numbered_support_subset_iff G C (n+j) (n+i) hsJ hsI).mp
+    rw [he]
+  exact support_mask_subset_strict _ _ _ hsub hne
+    (numbered_atom_range G C _ hsI) (numbered_atom_range G C _ hsJ)
+
+end L2260FirstMerge
