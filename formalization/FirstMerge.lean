@@ -951,8 +951,43 @@ private theorem dirtyOrPrefix_succ {n : Nat} (G : SimpleGraph (Fin n))
           then 1 else 0) := by
   classical
   by_cases h : (gateAt C j).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C j
-  · simp [dirtyOrPrefix, Finset.range_add_one, h]
-  · simp [dirtyOrPrefix, Finset.range_add_one, h]
+  · have he : ((insert j (Finset.range j)).filter fun i =>
+          (gateAt C i).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C i) =
+        insert j ((Finset.range j).filter fun i =>
+          (gateAt C i).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C i) := by
+      ext i
+      simp only [Finset.mem_filter, Finset.mem_insert]
+      constructor
+      · rintro ⟨hi, hp⟩
+        rcases hi with hi | hi
+        · exact Or.inl hi
+        · exact Or.inr ⟨hi,hp⟩
+      · rintro (hi | ⟨hi,hp⟩)
+        · subst i
+          exact ⟨Or.inl rfl,h⟩
+        · exact ⟨Or.inr hi,hp⟩
+    unfold dirtyOrPrefix
+    rw [Finset.range_add_one, he, Finset.card_insert_of_notMem]
+    · simp only [if_pos h]
+    · intro hm
+      exact Finset.notMem_range_self ((Finset.mem_filter.mp hm).1)
+  · have he : ((insert j (Finset.range j)).filter fun i =>
+          (gateAt C i).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C i) =
+        ((Finset.range j).filter fun i =>
+          (gateAt C i).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C i) := by
+      ext i
+      simp only [Finset.mem_filter, Finset.mem_insert]
+      constructor
+      · rintro ⟨hi,hp⟩
+        rcases hi with hi | hi
+        · subst i
+          exact False.elim (h hp)
+        · exact ⟨hi,hp⟩
+      · rintro ⟨hi,hp⟩
+        exact ⟨Or.inr hi,hp⟩
+    unfold dirtyOrPrefix
+    rw [Finset.range_add_one, he]
+    simp only [if_neg h, Nat.add_zero]
 
 /-- At every gate prefix, all effective singleton supports can be
 made local, using at most one class merge per dirty OR. -/
