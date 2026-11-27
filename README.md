@@ -639,3 +639,11 @@ WSL commit a300eeb: LEAN COMPONENT MERGE CHECK OK (exit 0; warnings only). Added
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CIRCUIT COMPONENT CHECK OK"
 ```
+
+### Actual incompatible-edge clique bound
+
+WSL commit 2e31d01: LEAN CIRCUIT COMPONENT CHECK OK (exit 0; warnings only). The original-vertex locality and lower bound n <= b + |orN| are verified. Added GateCross, edge_has_gate_cross, gate_cross_pair, local_cross_same_pair, clean_cross_compatible and incompatible_edges_bound. Given a local partition, two edges crossed by one clean AND share an endpoint and the same unordered block pair. A finite set of mutually incompatible edges which cannot be crossed by dirty ANDs injects into the official tops finset. This is the mathematical cardinality bound behind the fixed benchmark's incompatible-edge clique constraint; the translation into CNF, the full auxiliary-atom partition and its tighter bounds, normalization and certificates are still pending. New Lean section not compiled yet. SAT sources and checkpoints unchanged.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN INCOMPATIBLE EDGES CHECK OK"
+```
