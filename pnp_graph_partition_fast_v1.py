@@ -178,7 +178,7 @@ def import_old(db,path,expected,parts):
             for idx,st,payload in old.execute("SELECT id,status,payload FROM results WHERE status='UNSAT'"):
                 out=json.loads(payload)
                 out["inherited_from_fixed_v1"]=True
-                cur=db.execute("INSERT OR REPLACE INTO results VALUES(?,?,?)",
+                cur=db.execute("INSERT INTO results VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload WHERE results.status=\x27TIMEOUT\x27",
                     (idx,st,json.dumps(out,separators=(",",":"))))
                 n+=cur.rowcount
         return n
