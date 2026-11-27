@@ -4180,3 +4180,160 @@ theorem least_distinct_or_supports {n : Nat} (G : SimpleGraph (Fin n))
   cases ha : wireVal n C (n+j) x <;> cases hb : wireVal n C (n+i) x <;> simp_all
 
 end L2260FirstMerge
+
+
+/-! ## Minimum-circuit cuts: closure of the internal network
+
+A dirty wire cannot be the output. A direct OR reader of a dirty
+wire is itself dirty. Following readers in a least top-form circuit
+therefore proves that every dirty OR is in the raw/junk network.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem or_reader_support_subset {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (j w : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.or)
+    (hw : w ∈ (gateAt C j).inputs) :
+    symbolicSupport n C w ⊆ symbolicSupport n C (n+j) := by
+  have hu := symbolic_expand n C (n+j) (real_or_expandable C hAO j hj hop)
+  have he : n+j-n = j := by omega
+  rw [he] at hu
+  rw [(actual_opnds C hAO j hj).1] at hw
+  rcases List.mem_cons.mp hw with h | h
+  · subst w
+    rw [hu]
+    exact Finset.subset_union_left
+  · have h' : w = PEqualNP.TopForm.opnd C j 1 := by simpa using h
+    subst w
+    rw [hu]
+    exact Finset.subset_union_right
+
+theorem dirty_not_output {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (j : Nat) (hd : ¬ PEqualNP.TopForm.BelowF G C j) :
+    C.output ≠ n+j := by
+  intro he
+  apply hd
+  intro x hx
+  have hf := congrFun hmin.2.1 x
+  change (C.wires (List.ofFn x)).getD C.output false = graphFun G ∅ x at hf
+  rw [he] at hf
+  change (C.wires (List.ofFn x)).getD (n+j) false = true at hx
+  exact hf.symm.trans hx
+
+theorem dirty_or_reader_dirty {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (i j : Nat) (hd : ¬ PEqualNP.TopForm.BelowF G C i)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.or)
+    (hr : n+i ∈ (gateAt C j).inputs) :
+    ¬ PEqualNP.TopForm.BelowF G C j := by
+  intro hc
+  apply hd
+  intro x hx
+  apply hc x
+  change wireVal n C (n+j) x = true
+  exact support_subset_wire_imp C hAO (n+i) (n+j)
+    (or_reader_support_subset C hAO j (n+i) hj hop hr) x hx
+
+/-- All dirty ORs are retained, not just those known a priori to
+have raw/junk-only support. The descending induction is justified
+by strict physical readback and the absence of unused gates. -/
+theorem dirty_or_internal {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.orN G C) :
+    j ∈ internalOrGates G C := by
+  have aux : ∀ d j : Nat, d = C.gates.length-j →
+      j ∈ PEqualNP.TopForm.orN G C → j ∈ internalOrGates G C := by
+    intro d
+    induction d using Nat.strongRecOn with
+    | ind d ih =>
+        intro j hdist hj
+        have hm := Finset.mem_filter.mp hj
+        have hjlt := Finset.mem_range.mp hm.1
+        have hop := hm.2.1
+        have hd := hm.2.2
+        have hs : symbolicSupport n C (n+j) ⊆ atomUniverse G C := by
+          rcases least_gate_has_reader G C hmin j hjlt with hout | ⟨k,hk,hjk,hr⟩
+          · exact False.elim (dirty_not_output G C hmin j hd hout)
+          · rcases hmin.1.1 _ (actual_gate_mem C k hk) with ha | ho
+            · exact and_operand_support_subset G C hmin.1 htop k hk ha (n+j) hr
+            · have hd' := dirty_or_reader_dirty G C hmin.1 j k hd hk ho hr
+              have hmem : k ∈ PEqualNP.TopForm.orN G C :=
+                Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hk,ho,hd'⟩
+              have hkl : C.gates.length-k < d := by omega
+              have hki := ih (C.gates.length-k) hkl k rfl hmem
+              exact (or_reader_support_subset C hmin.1 k (n+j) hk ho hr).trans
+                (internal_or_mem G C k hki).2.2
+        change j ∈ localDirtyOrGates G C (atomUniverse G C)
+        exact Finset.mem_filter.mpr ⟨hm.1,hop,hd,hs⟩
+  exact aux (C.gates.length-j) j rfl hj
+
+theorem internal_or_eq_orN {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) :
+    internalOrGates G C = PEqualNP.TopForm.orN G C := by
+  apply Finset.Subset.antisymm
+  · exact local_dirty_or_subset G C (atomUniverse G C)
+  · intro j hj
+    exact dirty_or_internal G C hmin htop j hj
+
+/-- Every dirty gate has a direct reader retained by the SAT model:
+an AND (junk or clean) or a retained physical OR. -/
+theorem dirty_gate_internal_reader {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j < C.gates.length)
+    (hd : ¬ PEqualNP.TopForm.BelowF G C j) :
+    ∃ k < C.gates.length, j < k ∧ n+j ∈ (gateAt C k).inputs ∧
+      ((gateAt C k).op = GateOp.and ∨ k ∈ internalOrGates G C) := by
+  rcases least_gate_has_reader G C hmin j hj with hout | ⟨k,hk,hjk,hr⟩
+  · exact False.elim (dirty_not_output G C hmin j hd hout)
+  · refine ⟨k,hk,hjk,hr,?_⟩
+    rcases hmin.1.1 _ (actual_gate_mem C k hk) with ha | ho
+    · exact Or.inl ha
+    · apply Or.inr
+      apply dirty_or_internal G C hmin htop k
+      exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hk,ho,
+        dirty_or_reader_dirty G C hmin.1 j k hd hk ho hr⟩
+
+theorem internal_or_has_reader {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j ∈ internalOrGates G C) :
+    ∃ k < C.gates.length, j < k ∧ n+j ∈ (gateAt C k).inputs ∧
+      ((gateAt C k).op = GateOp.and ∨ k ∈ internalOrGates G C) := by
+  have hm := Finset.mem_filter.mp (local_dirty_or_subset G C (atomUniverse G C) hj)
+  exact dirty_gate_internal_reader G C hmin htop j (Finset.mem_range.mp hm.1) hm.2.2
+
+theorem junk_has_internal_reader {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.junk G C) :
+    ∃ k < C.gates.length, j < k ∧ n+j ∈ (gateAt C k).inputs ∧
+      ((gateAt C k).op = GateOp.and ∨ k ∈ internalOrGates G C) := by
+  have hm := Finset.mem_filter.mp hj
+  have hd : IsDirtyAnd n G C j := hm.2
+  obtain ⟨_,_,x,hx,hf⟩ := hd
+  have hn : ¬ PEqualNP.TopForm.BelowF G C j := by
+    intro hc
+    have ht := hc x hx
+    rw [hf] at ht
+    contradiction
+  exact dirty_gate_internal_reader G C hmin htop j (Finset.mem_range.mp hm.1) hn
+
+theorem least_two_junk_source_count {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (h2 : (PEqualNP.TopForm.junk G C).card = 2) :
+    (internalSource G C).card = n+2+(PEqualNP.TopForm.orN G C).card := by
+  rw [internal_source_card,h2,internal_or_eq_orN G C hmin htop]
+
+end L2260FirstMerge
