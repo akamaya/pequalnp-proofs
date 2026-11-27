@@ -1216,3 +1216,144 @@ theorem incompatible_edges_bound {n : Nat} (G : SimpleGraph (Fin n))
       e.val.1 e.val.2 f.val.1 f.val.2 (hg e) hf)
 
 end L2260FirstMerge
+
+/-! ## Auxiliary atom labels
+
+The original inputs and the two junk gates are separate symbolic atoms.
+A bearing junk atom has a nonempty effective singleton set and is
+attached to an original vertex in that set. OR operations merge the
+classes of their symbolic operands. These are reusable lemmas for the
+auxiliary-atom construction, not yet its circuit-level instantiation.
+-/
+namespace L2260FirstMerge
+
+/-- Effective singleton support obtained by evaluating symbolic atoms. -/
+def atomEffective {α γ : Type} [DecidableEq γ]
+    (truth : α → Finset γ) (S : Finset α) : Finset γ :=
+  S.biUnion truth
+
+/-- Every singleton carried by an atom belongs to that atom's class. -/
+def AtomLinked {α β γ : Type} (label : α → β) (raw : γ → α)
+    (truth : α → Finset γ) : Prop :=
+  ∀ a u, u ∈ truth a → label (raw u) = label a
+
+theorem atom_effective_local {α β γ : Type} [DecidableEq γ]
+    (label : α → β) (raw : γ → α) (truth : α → Finset γ)
+    (S : Finset α) (hl : AtomLinked label raw truth)
+    (hs : SupportLocal label S) :
+    SupportLocal (fun u => label (raw u)) (atomEffective truth S) := by
+  intro u hu v hv
+  obtain ⟨a,ha,hua⟩ := Finset.mem_biUnion.mp hu
+  obtain ⟨b,hb,hvb⟩ := Finset.mem_biUnion.mp hv
+  exact (hl a u hua).trans ((hs a ha b hb).trans (hl b v hvb).symm)
+
+theorem atom_effective_union {α γ : Type} [DecidableEq α] [DecidableEq γ]
+    (truth : α → Finset γ) (A B : Finset α) :
+    atomEffective truth (A ∪ B) = atomEffective truth A ∪ atomEffective truth B := by
+  ext u
+  simp only [atomEffective, Finset.mem_biUnion, Finset.mem_union]
+  constructor
+  · rintro ⟨a,ha,hu⟩
+    rcases ha with ha | ha
+    · exact Or.inl ⟨a,ha,hu⟩
+    · exact Or.inr ⟨a,ha,hu⟩
+  · rintro (⟨a,ha,hu⟩ | ⟨a,ha,hu⟩)
+    · exact ⟨a,Or.inl ha,hu⟩
+    · exact ⟨a,Or.inr ha,hu⟩
+
+theorem merge_preserves_equal {α β : Type} [DecidableEq β]
+    (label : α → β) (p q : β) (a b : α) (h : label a = label b) :
+    mergeLabel label p q a = mergeLabel label p q b := by
+  unfold mergeLabel
+  rw [h]
+
+theorem merge_preserves_linked {α β γ : Type} [DecidableEq β]
+    (label : α → β) (raw : γ → α) (truth : α → Finset γ)
+    (p q : β) (h : AtomLinked label raw truth) :
+    AtomLinked (mergeLabel label p q) raw truth := by
+  intro a u hu
+  exact merge_preserves_equal label p q _ _ (h a u hu)
+
+/-- A new junk atom with a nonempty, local singleton set can be linked
+to all those original vertices by at most one class merge. Empty
+singleton sets require no merge at all. All old equalities survive. -/
+theorem attach_junk {α β γ : Type} [Fintype α] [DecidableEq β]
+    (label : α → β) (raw : γ → α) (j : α) (U : Finset γ)
+    (hU : SupportLocal (fun u => label (raw u)) U) :
+    ∃ label' : α → β,
+      (∀ a b, label a = label b → label' a = label' b) ∧
+      (∀ u ∈ U, label' (raw u) = label' j) ∧
+      labelCount label ≤ labelCount label' + (if U.Nonempty then 1 else 0) := by
+  classical
+  by_cases he : U.Nonempty
+  · obtain ⟨u,hu⟩ := he
+    let label' := mergeLabel label (label (raw u)) (label j)
+    refine ⟨label',fun a b h => merge_preserves_equal label _ _ a b h,?_,?_⟩
+    · intro v hv
+      have hvu : label (raw v) = label (raw u) := hU v hv u hu
+      change mergeLabel label (label (raw u)) (label j) (raw v) =
+        mergeLabel label (label (raw u)) (label j) j
+      unfold mergeLabel
+      rw [hvu,if_pos rfl]
+      split <;> rfl
+    · have hm := merge_count label (label (raw u)) (label j)
+      have hne : U.Nonempty := ⟨u,hu⟩
+      simpa only [if_pos hne] using hm
+  · refine ⟨label,fun _ _ h => h,?_,?_⟩
+    · intro u hu
+      exact False.elim (he ⟨u,hu⟩)
+    · simp only [if_neg he,Nat.add_zero,Nat.le_refl]
+
+/-- A sequence of class merges loses at most one class per operation. -/
+def mergeSequence {α β : Type} [DecidableEq β]
+    (label : α → β) (ops : List (β × β)) : α → β :=
+  ops.foldl (fun l p => mergeLabel l p.1 p.2) label
+
+theorem merge_sequence_count {α β : Type} [Fintype α] [DecidableEq β]
+    (label : α → β) (ops : List (β × β)) :
+    labelCount label ≤ labelCount (mergeSequence label ops) + ops.length := by
+  induction ops generalizing label with
+  | nil => simp [mergeSequence]
+  | cons p ops ih =>
+      have h1 := merge_count label p.1 p.2
+      have h2 := ih (mergeLabel label p.1 p.2)
+      change labelCount label ≤
+        labelCount (mergeSequence (mergeLabel label p.1 p.2) ops) + (p :: ops).length
+      simp only [List.length_cons]
+      omega
+
+/-- Inserting a junk label costs no additional class if that label is
+already represented by an original vertex. -/
+theorem two_junk_labels_count {β : Type} [DecidableEq β]
+    (R : Finset β) (a b : β) (t0 t1 : Bool)
+    (h0 : t0 = true → a ∈ R) (h1 : t1 = true → b ∈ R) :
+    (insert a (insert b R)).card + t0.toNat + t1.toNat ≤ R.card + 2 := by
+  cases t0 <;> cases t1
+  · have ha := Finset.card_insert_le a (insert b R)
+    have hb := Finset.card_insert_le b R
+    simp only [Bool.toNat_false] at ⊢
+    omega
+  · have hb : b ∈ R := h1 rfl
+    rw [Finset.insert_eq_of_mem hb]
+    have ha := Finset.card_insert_le a R
+    simp only [Bool.toNat_false,Bool.toNat_true] at ⊢
+    omega
+  · have ha : a ∈ R := h0 rfl
+    have ha' : a ∈ insert b R := Finset.mem_insert_of_mem ha
+    rw [Finset.insert_eq_of_mem ha']
+    have hb := Finset.card_insert_le b R
+    simp only [Bool.toNat_false,Bool.toNat_true] at ⊢
+    omega
+  · rw [Finset.insert_eq_of_mem (h1 rfl),Finset.insert_eq_of_mem (h0 rfl)]
+    simp only [Bool.toNat_true]
+    omega
+
+/-- Combining the two-junk class bound with the rank lower bound gives
+the original-vertex class bound. At equality, both bounds are tight. -/
+theorem auxiliary_rank_tight (n r t b total : Nat)
+    (hrank : n+2 ≤ total+r+t) (hclasses : total+t ≤ b+2)
+    (heq : n = b+r) :
+    total+t = b+2 ∧ n+2 = total+r+t := by
+  omega
+
+end L2260FirstMerge
