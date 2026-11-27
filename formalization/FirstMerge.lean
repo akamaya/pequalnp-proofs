@@ -3980,3 +3980,203 @@ theorem least_or_not_subset {n : Nat} (G : SimpleGraph (Fin n))
     (fun x => comparable_or_value C hmin.1 j a b hj hop hin hs x)
 
 end L2260FirstMerge
+
+
+/-! ## Minimum-circuit cuts: live gates
+
+An unread non-output gate can be deleted without requiring equality
+between that gate and the replacement wire. The simulation relation
+therefore excludes precisely the deleted wire.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem unread_redirect_step (cut rep : Nat) (w z : List Bool)
+    (hr : rep < cut) (hc : cut < w.length)
+    (hlen : w.length = z.length+1)
+    (hrel : ∀ i, i ≠ cut → w.getD i false =
+      z.getD (redirectIndex cut rep i) false)
+    (g : Gate) (hg : cut ∉ g.inputs) :
+    ∀ i, i ≠ cut → (gateStep w g).getD i false =
+      (gateStep z (redirectGate cut rep g)).getD (redirectIndex cut rep i) false := by
+  have hmap : g.inputs.map (fun i => w.getD i false) =
+      (redirectGate cut rep g).inputs.map (fun i => z.getD i false) := by
+    change g.inputs.map (fun i => w.getD i false) =
+      (g.inputs.map (redirectIndex cut rep)).map (fun i => z.getD i false)
+    rw [List.map_map]
+    apply List.map_congr_left
+    intro i hi
+    exact hrel i (fun he => hg (he ▸ hi))
+  intro i hic
+  unfold gateStep
+  rw [generic_getD_snoc,generic_getD_snoc]
+  have he : redirectIndex cut rep i = z.length ↔ i = w.length := by
+    have h := redirect_index_end_iff (i := i) hr hc
+    have hlen' : w.length-1 = z.length := by omega
+    rw [hlen'] at h
+    exact h
+  by_cases hi : i = w.length
+  · have hi' := he.mpr hi
+    simp only [if_pos hi,if_pos hi']
+    change g.op.eval (g.inputs.map (fun i => w.getD i false)) =
+      g.op.eval ((redirectGate cut rep g).inputs.map (fun i => z.getD i false))
+    rw [hmap]
+  · have hi' : redirectIndex cut rep i ≠ z.length := fun h => hi (he.mp h)
+    simp only [if_neg hi,if_neg hi']
+    exact hrel i hic
+
+theorem unread_redirect_fold (cut rep : Nat) (gs : List Gate)
+    (w z : List Bool) (hr : rep < cut) (hc : cut < w.length)
+    (hlen : w.length = z.length+1)
+    (hrel : ∀ i, i ≠ cut → w.getD i false =
+      z.getD (redirectIndex cut rep i) false)
+    (hgs : ∀ g ∈ gs, cut ∉ g.inputs) :
+    ∀ i, i ≠ cut → (gs.foldl gateStep w).getD i false =
+      ((gs.map (redirectGate cut rep)).foldl gateStep z).getD
+        (redirectIndex cut rep i) false := by
+  induction gs generalizing w z with
+  | nil => exact hrel
+  | cons g gs ih =>
+      change ∀ i, i ≠ cut → (gs.foldl gateStep (gateStep w g)).getD i false =
+        ((gs.map (redirectGate cut rep)).foldl gateStep
+          (gateStep z (redirectGate cut rep g))).getD (redirectIndex cut rep i) false
+      apply ih (gateStep w g) (gateStep z (redirectGate cut rep g))
+      · simp only [gateStep,List.length_append,List.length_cons,List.length_nil]
+        omega
+      · simp only [gateStep,List.length_append,List.length_cons,List.length_nil]
+        omega
+      · exact unread_redirect_step cut rep w z hr hc hlen hrel g (hgs g (by simp))
+      · intro a ha
+        exact hgs a (List.mem_cons.mpr (Or.inr ha))
+
+theorem unread_deleted_eval {n : Nat} (C : Circuit)
+    (pre post : List Gate) (g : Gate) (rep : Nat)
+    (he : C.gates = pre ++ g :: post) (hr : rep < n+pre.length)
+    (hout : C.output ≠ n+pre.length)
+    (hpost : ∀ a ∈ post, n+pre.length ∉ a.inputs)
+    (x : Fin n → Bool) :
+    (deletedCircuit n C pre post rep).eval (List.ofFn x) =
+      C.eval (List.ofFn x) := by
+  let z := pre.foldl gateStep (List.ofFn x)
+  let w := gateStep z g
+  have hz : z.length = n+pre.length := by
+    dsimp [z]
+    rw [fold_length]
+    simp
+  have hw : w.length = z.length+1 := by simp [w,gateStep]
+  have hrel : ∀ i, i ≠ n+pre.length → w.getD i false =
+      z.getD (redirectIndex (n+pre.length) rep i) false := by
+    intro i hi
+    have hi' : i ≠ z.length := by omega
+    change (gateStep z g).getD i false = _
+    unfold gateStep
+    rw [generic_getD_snoc]
+    simp only [if_neg hi']
+    by_cases hgt : n+pre.length < i
+    · have h1 : ¬ i < z.length := by omega
+      have h2 : ¬ i-1 < z.length := by omega
+      simp [redirectIndex,hi,hgt,List.getD_eq_getElem?_getD,h1,h2]
+    · simp [redirectIndex,hi,hgt]
+  have hsim := unread_redirect_fold (n+pre.length) rep post w z hr
+    (by omega) hw hrel hpost C.output hout
+  change ((pre ++ post.map (redirectGate (n+pre.length) rep)).foldl
+      gateStep (List.ofFn x)).getD (redirectIndex (n+pre.length) rep C.output) false =
+    (C.gates.foldl gateStep (List.ofFn x)).getD C.output false
+  rw [he,List.foldl_append,List.foldl_append]
+  exact hsim.symm
+
+private theorem mem_has_index {α : Type} (l : List α) (a d : α)
+    (ha : a ∈ l) : ∃ i < l.length, l.getD i d = a := by
+  induction l with
+  | nil => simp at ha
+  | cons b l ih =>
+      rcases List.mem_cons.mp ha with he | h
+      · exact ⟨0,by simp,by simp [he]⟩
+      · obtain ⟨i,hi,hv⟩ := ih h
+        exact ⟨i+1,by simpa using Nat.succ_lt_succ hi,by simpa using hv⟩
+
+/-- Every real gate in a least circuit is the output or has a direct
+reader at a strictly later gate. -/
+theorem least_gate_has_reader {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (j : Nat) (hj : j < C.gates.length) :
+    C.output = n+j ∨ ∃ k < C.gates.length, j < k ∧
+      n+j ∈ (gateAt C k).inputs := by
+  classical
+  by_contra h
+  have hout : C.output ≠ n+j := fun he => h (Or.inl he)
+  obtain ⟨pre,g,post,he,hpre⟩ := split_at_index C.gates j hj
+  have hpost : ∀ a ∈ post, n+pre.length ∉ a.inputs := by
+    intro a ha hm
+    obtain ⟨i,hi,hv⟩ := mem_has_index post a ⟨GateOp.or,[]⟩ ha
+    let k := pre.length+(i+1)
+    have hk : k < C.gates.length := by
+      rw [he]
+      simp only [List.length_append,List.length_cons]
+      dsimp [k]
+      omega
+    have hgate : gateAt C k = a := by
+      unfold gateAt
+      rw [he]
+      change (pre ++ g :: post).getD (pre.length+(i+1)) ⟨GateOp.or,[]⟩ = a
+      rw [delete_getD_right]
+      exact hv
+    apply h
+    refine Or.inr ⟨k,hk,?_,?_⟩
+    · dsimp [k]
+      omega
+    · rw [hgate,← hpre]
+      exact hm
+  let rep := PEqualNP.TopForm.opnd C j 0
+  have hr : rep < n+pre.length := by
+    rw [hpre]
+    exact (actual_opnds C hmin.1 j hj).2.1
+  let D := deletedCircuit n C pre post rep
+  have hAO : PEqualNP.TopForm.IsAO2 n D :=
+    deleted_circuit_ao C hmin.1 pre post g rep he hr
+  have hf : PEqualNP.MetaComplexity.circuitFun n D = graphFun G ∅ := by
+    funext x
+    change D.eval (List.ofFn x) = graphFun G ∅ x
+    have hout' : C.output ≠ n+pre.length := by rwa [hpre]
+    exact (unread_deleted_eval C pre post g rep he hr hout' hpost x).trans
+      (congrFun hmin.2.1 x)
+  have hs := hmin.2.2 D hAO hf
+  change C.gates.length ≤ (pre ++ post.map (redirectGate (n+pre.length) rep)).length at hs
+  rw [he] at hs
+  simp only [List.length_append,List.length_cons,List.length_map] at hs
+  omega
+
+/-- In a least circuit a gate cannot read the same source twice. -/
+theorem least_distinct_operands {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (j : Nat) (hj : j < C.gates.length) :
+    PEqualNP.TopForm.opnd C j 0 ≠ PEqualNP.TopForm.opnd C j 1 := by
+  intro he
+  obtain ⟨hin,ha,hb⟩ := actual_opnds C hmin.1 j hj
+  rcases hmin.1.1 _ (actual_gate_mem C j hj) with hop | hop
+  · apply least_and_not_subset G C hmin j _ _ hj hop hin
+    rw [he]
+  · apply least_or_not_subset G C hmin j _ _ hj hop hin
+    rw [he]
+
+/-- Different real OR gates of a least circuit have distinct expanded
+supports, since equal supports imply equality on all Boolean inputs. -/
+theorem least_distinct_or_supports {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (i j : Nat) (hj : j < C.gates.length) (hij : i < j) :
+    symbolicSupport n C (n+i) ≠ symbolicSupport n C (n+j) := by
+  intro he
+  apply least_no_earlier_equal G C hmin j (n+i) hj (by omega)
+  intro x
+  change wireVal n C (n+j) x = wireVal n C (n+i) x
+  have h1 := support_subset_wire_imp C hmin.1 (n+i) (n+j) (by rw [he]) x
+  have h2 := support_subset_wire_imp C hmin.1 (n+j) (n+i) (by rw [he]) x
+  cases ha : wireVal n C (n+j) x <;> cases hb : wireVal n C (n+i) x <;> simp_all
+
+end L2260FirstMerge
