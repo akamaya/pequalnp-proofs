@@ -6353,3 +6353,184 @@ theorem or_reaches_and_atom {n : Nat} (C : Circuit)
           exact (or_reaches_step C g g hj).mpr (Or.inl rfl)
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: raw input supports and star sides
+
+The official orIn stops at ANDs. It is not the effective singleton
+support (which also evaluates junk atoms). Its cardinality is exactly
+the number of raw bits in a numbered support.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem or_reaches_support_subset {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w g : Nat)
+    (hw : w < n+C.gates.length) (hr : OrReaches n C w g) :
+    symbolicSupport n C (n+g) ⊆ symbolicSupport n C w := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      have hn := hr.1
+      let j := w-n
+      have he : w = n+j := by dsimp [j]; omega
+      have hj : j < C.gates.length := by omega
+      rw [he] at hr ⊢
+      rcases (or_reaches_step C j g hj).mp hr with hg | ⟨hop,k,hk,hread,hreach⟩
+      · subst g
+        exact fun _ h => h
+      · exact (ih (n+k) (by omega) (by omega) hreach).trans
+          (or_reader_support_subset C hAO j (n+k) hj hop hread)
+
+/-- Raw leaves either are the root itself or have an actual OR
+reader in the official OR closure of the root. -/
+theorem raw_support_has_or_reader {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w : Nat)
+    (hw : w < n+C.gates.length) (u : Fin n)
+    (hu : u.val ∈ symbolicSupport n C w) :
+    u.val = w ∨ ∃ g < C.gates.length, OrReaches n C w g ∧
+      (gateAt C g).op = GateOp.or ∧ u.val ∈ (gateAt C g).inputs := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases hex : Expandable n C w
+      · obtain ⟨hn,_,hop,ha,hb⟩ := hex
+        let j := w-n
+        have he : w = n+j := by dsimp [j]; omega
+        have hj : j < C.gates.length := by omega
+        have hin := (actual_opnds C hAO j hj).1
+        rw [symbolic_expand n C w ⟨hn,hw,hop,ha,hb⟩] at hu
+        have descend (a : Nat) (hal : a < w)
+            (har : a ∈ (gateAt C j).inputs)
+            (ham : u.val ∈ symbolicSupport n C a) :
+            u.val = w ∨ ∃ g < C.gates.length, OrReaches n C w g ∧
+              (gateAt C g).op = GateOp.or ∧ u.val ∈ (gateAt C g).inputs := by
+          right
+          rcases ih a hal (hal.trans hw) ham with hua | ⟨g,hg,hreach,hgo,hgr⟩
+          · refine ⟨j,hj,?_,hop,?_⟩
+            · rw [he]
+              exact (or_reaches_step C j j hj).mpr (Or.inl rfl)
+            · rw [hua]
+              exact har
+          · have hna := hreach.1
+            let k := a-n
+            have hak : a = n+k := by dsimp [k]; omega
+            have hk : k < j := by omega
+            refine ⟨g,hg,?_,hgo,hgr⟩
+            rw [he]
+            apply (or_reaches_step C j g hj).mpr
+            exact Or.inr ⟨hop,k,hk,hak ▸ har,hak ▸ hreach⟩
+        rcases Finset.mem_union.mp hu with hu | hu
+        · exact descend _ ha (by
+            change PEqualNP.TopForm.opnd C j 0 ∈ (gateAt C j).inputs
+            rw [hin]
+            simp) hu
+        · exact descend _ hb (by
+            change PEqualNP.TopForm.opnd C j 1 ∈ (gateAt C j).inputs
+            rw [hin]
+            simp) hu
+      · rw [symbolic_atom n C w hex] at hu
+        exact Or.inl (Finset.mem_singleton.mp hu)
+
+theorem or_in_symbolic_iff {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w : Nat)
+    (hw : w < n+C.gates.length) (u : Fin n) :
+    u ∈ PEqualNP.TopForm.orIn n C w ↔ u.val ∈ symbolicSupport n C w := by
+  unfold PEqualNP.TopForm.orIn
+  simp only [Finset.mem_filter,Finset.mem_univ,true_and]
+  constructor
+  · rintro (he | ⟨g,hg,hr,hop,hread⟩)
+    · rw [← he,raw_symbolic_singleton C u]
+      simp
+    · apply or_reaches_support_subset C hAO w g hw hr
+      apply or_reader_support_subset C hAO g u.val hg hop hread
+      rw [raw_symbolic_singleton C u]
+      simp
+  · exact raw_support_has_or_reader C hAO w hw u
+
+theorem or_in_numbered_iff {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) (u : Fin n) :
+    u ∈ PEqualNP.TopForm.orIn n C w ↔ u.val ∈ numberedSupport G C w := by
+  have ha : u.val ∈ atomUniverse G C :=
+    Finset.mem_union.mpr (Or.inl (Finset.mem_range.mpr u.isLt))
+  have h := numbered_support_mem_iff G C w u.val hs ha
+  rw [source_code_raw G C u.val u.isLt] at h
+  exact (or_in_symbolic_iff C hAO w hw u).trans h.symm
+
+theorem numbered_raw_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) :
+    ((numberedSupport G C w).filter fun z => z < n).card =
+      (PEqualNP.TopForm.orIn n C w).card := by
+  have he : (numberedSupport G C w).filter (fun z => z < n) =
+      (PEqualNP.TopForm.orIn n C w).image (fun u : Fin n => u.val) := by
+    ext z
+    constructor
+    · intro hz
+      obtain ⟨hm,hlt⟩ := Finset.mem_filter.mp hz
+      let u : Fin n := ⟨z,hlt⟩
+      exact Finset.mem_image.mpr ⟨u,
+        (or_in_numbered_iff G C hAO w hw hs u).mpr hm,rfl⟩
+    · intro hz
+      obtain ⟨u,hu,he⟩ := Finset.mem_image.mp hz
+      rw [← he]
+      exact Finset.mem_filter.mpr ⟨
+        (or_in_numbered_iff G C hAO w hw hs u).mp hu,u.isLt⟩
+  rw [he]
+  apply Finset.card_image_of_injective
+  intro a b hab
+  exact Fin.ext hab
+
+theorem or_in_subset_effective {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w : Nat)
+    (hw : w < n+C.gates.length) :
+    PEqualNP.TopForm.orIn n C w ⊆ effectiveSingletons C w := by
+  intro u hu
+  have hm := (or_in_symbolic_iff C hAO w hw u).mp hu
+  have hv : wireVal n C u.val (pairInput u u) = true := by
+    rw [raw_wire_value]
+    simp [pairInput]
+  have ht := (symbolic_eval C hAO (pairInput u u) w).mpr ⟨u.val,hm,hv⟩
+  exact Finset.mem_filter.mpr ⟨Finset.mem_univ _,ht⟩
+
+/-- The raw support of a top is a star and each crossing is an
+actual edge. No assumption about the truth of junk atoms is needed. -/
+theorem top_raw_star {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (h4 : PEqualNP.TopForm.NoFourCycle G)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.tops G C) :
+    (PEqualNP.TopForm.side (n := n) C j 0).card ≤ 1 ∨
+      (PEqualNP.TopForm.side (n := n) C j 1).card ≤ 1 := by
+  have hm := Finset.mem_filter.mp hj
+  have hjlt := Finset.mem_range.mp hm.1
+  obtain ⟨hin,ha,hb⟩ := actual_opnds C hAO j hjlt
+  have hA := Finset.card_le_card
+    (or_in_subset_effective C hAO _ (show PEqualNP.TopForm.opnd C j 0 <
+      n+C.gates.length by omega))
+  have hB := Finset.card_le_card
+    (or_in_subset_effective C hAO _ (show PEqualNP.TopForm.opnd C j 1 <
+      n+C.gates.length by omega))
+  rcases clean_effective_star G C hAO h4 j _ _ hjlt hm.2.1 hin hm.2.2 with h | h
+  · exact Or.inl (hA.trans h)
+  · exact Or.inr (hB.trans h)
+
+theorem top_raw_cross_adj {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.tops G C)
+    (u v : Fin n) (hu : u ∈ PEqualNP.TopForm.side C j 0)
+    (hv : v ∈ PEqualNP.TopForm.side C j 1) : G.Adj u v := by
+  have hm := Finset.mem_filter.mp hj
+  have hjlt := Finset.mem_range.mp hm.1
+  obtain ⟨hin,ha,hb⟩ := actual_opnds C hAO j hjlt
+  exact clean_effective_adj G C hAO j _ _ hjlt hm.2.1 hin hm.2.2 u v
+    (or_in_subset_effective C hAO _ (by omega) hu)
+    (or_in_subset_effective C hAO _ (by omega) hv)
+
+end L2260FirstMerge
