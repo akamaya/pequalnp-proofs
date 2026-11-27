@@ -177,10 +177,7 @@ def self_test(name):
     for lo,hi in ((0,0),(1,2),(2,2)):
         d=diagram(parts)
         enc,raw,_=inc.build(n,edges,k,lo,hi,2,minimal=False,base=base)
-        with Solver(name=name,bootstrap_with=enc.cnf) as sol:
-            encode_diagram(enc,raw,d)
-            # The new clauses must be installed after constructing them.
-            # Rebuild solver below from the complete CNF.
+        encode_diagram(enc,raw,d)
         with Solver(name=name,bootstrap_with=enc.cnf) as sol:
             expected={}
             for p in parts:
