@@ -623,3 +623,11 @@ WSL commit 3c07cab confirmed LEAN CROSS STAR CHECK OK; all previous indexed and 
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CLEAN EFFECTIVE STAR CHECK OK"
 ```
+
+### Effective support and component merge lemmas
+
+WSL commit 982f4fe: LEAN CLEAN EFFECTIVE STAR CHECK OK (exit 0; deprecated syntax/linter warnings only). Added gateVal_or_eq, effective_input, effective_and, effective_or, effective_clean_empty, SupportLocal, merge_count and merge_union_local. The new lemmas express actual singleton support as union/intersection and show that one OR can merge at most one original-vertex label class while preserving previously local sets. These additions are not yet compiled. Next step is induction over the actual gate sequence, counting dirty ORs; the full auxiliary graph with junk atoms, its rank/tight bounds, and CNF/certificates still require formalization. SAT files/checkpoints unchanged.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN COMPONENT MERGE CHECK OK"
+```
