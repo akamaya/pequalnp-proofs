@@ -5886,8 +5886,10 @@ theorem numbered_atom_singleton {n : Nat} (G : SimpleGraph (Fin n))
     unfold numberedSupport
     rw [he]
     simp
-  · obtain ⟨j,hj,rfl⟩ := Finset.mem_image.mp hj
-    have hop : (gateAt C j).op = GateOp.and := (Finset.mem_filter.mp hj).2.1
+  · have him : w ∈ (PEqualNP.TopForm.junk G C).image (fun j => n+j) := hj
+    obtain ⟨j,hj',he⟩ := Finset.mem_image.mp him
+    have hop : (gateAt C j).op = GateOp.and := (Finset.mem_filter.mp hj').2.1
+    rw [← he]
     unfold numberedSupport
     rw [and_wire_symbolic_singleton C j hop]
     simp
@@ -6008,5 +6010,153 @@ theorem padded_or_selector_pair {n : Nat} (G : SimpleGraph (Fin n))
   · refine ⟨b,a,Or.inr hin,hbS,haS,padded_code_strict _ _ _ _ h,
       padded_code_strict _ _ _ _ ha',?_⟩
     rw [hU,Finset.union_comm]
+
+end L2260FirstMerge
+
+
+/-! ## SAT reduction: boundary rows and gate evaluation
+
+The negative rows of the solver are maximal independent sets. Every
+dirty AND must be true at some such row, not merely at an arbitrary
+negative input. This follows by monotonicity and finite extension.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def boundaryInput {n : Nat} (S : Finset (Fin n)) : Fin n → Bool :=
+  fun v => decide (v ∈ S)
+
+def MaxFalseRow {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (S : Finset (Fin n)) : Prop :=
+  graphFun G ∅ (boundaryInput S) = false ∧
+    ∀ v ∉ S, graphFun G ∅ (boundaryInput (insert v S)) = true
+
+theorem boundary_input_mono {n : Nat} (S T : Finset (Fin n))
+    (h : S ⊆ T) (v : Fin n) :
+    boundaryInput S v = true → boundaryInput T v = true := by
+  simp only [boundaryInput,decide_eq_true_eq]
+  exact fun hv => h hv
+
+theorem boundary_input_of_row {n : Nat} (x : Fin n → Bool) :
+    boundaryInput (Finset.univ.filter fun v => x v = true) = x := by
+  funext v
+  cases hv : x v <;> simp [boundaryInput,hv]
+
+/-- Every negative row extends to a maximal negative row. The
+measure is the number of vertices still outside the set. -/
+theorem extend_false_row {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (S : Finset (Fin n))
+    (hs : graphFun G ∅ (boundaryInput S) = false) :
+    ∃ T : Finset (Fin n), S ⊆ T ∧ MaxFalseRow G T := by
+  classical
+  have aux : ∀ d : Nat, ∀ S : Finset (Fin n), d = n-S.card →
+      graphFun G ∅ (boundaryInput S) = false →
+      ∃ T : Finset (Fin n), S ⊆ T ∧ MaxFalseRow G T := by
+    intro d
+    induction d using Nat.strongRecOn with
+    | ind d ih =>
+        intro S hd hs
+        by_cases hmax : ∀ v ∉ S,
+            graphFun G ∅ (boundaryInput (insert v S)) = true
+        · exact ⟨S,fun _ h => h,hs,hmax⟩
+        · obtain ⟨v,hv⟩ := not_forall.mp hmax
+          have hv' := not_imp.mp hv
+          have hnot : v ∉ S := hv'.1
+          have hf : graphFun G ∅ (boundaryInput (insert v S)) = false := by
+            cases he : graphFun G ∅ (boundaryInput (insert v S))
+            · rfl
+            · exact False.elim (hv'.2 he)
+          have hcard : (insert v S).card = S.card+1 :=
+            Finset.card_insert_of_notMem hnot
+          have hbound : (insert v S).card ≤ n := by
+            have h := Finset.card_le_card
+              (show insert v S ⊆ (Finset.univ : Finset (Fin n)) from
+                Finset.subset_univ _)
+            simpa using h
+          have hlt : n-(insert v S).card < d := by omega
+          obtain ⟨T,hST,hT⟩ := ih _ hlt (insert v S) rfl hf
+          exact ⟨T,fun w hw => hST (Finset.mem_insert_of_mem hw),hT⟩
+  exact aux _ S rfl hs
+
+theorem junk_on_max_false_row {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.junk G C) :
+    ∃ S : Finset (Fin n), MaxFalseRow G S ∧
+      gateVal n C j (boundaryInput S) = true := by
+  classical
+  obtain ⟨_,_,x,hx,hf⟩ := (Finset.mem_filter.mp hj).2
+  let S := Finset.univ.filter fun v : Fin n => x v = true
+  have he : boundaryInput S = x := boundary_input_of_row x
+  obtain ⟨T,hST,hT⟩ := extend_false_row G S (by rw [he]; exact hf)
+  refine ⟨T,hT,?_⟩
+  have hm := wire_monotone C hAO (boundaryInput S) (boundaryInput T)
+    (boundary_input_mono S T hST)
+  change (C.wires (List.ofFn (boundaryInput T))).getD (n+j) false = true
+  apply hm (n+j)
+  rw [he]
+  exact hx
+
+/-- Graph-negative rows are precisely independent sets, expressed
+directly as the absence of an edge whose endpoints are both in S. -/
+theorem boundary_false_iff_independent {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (S : Finset (Fin n)) :
+    graphFun G ∅ (boundaryInput S) = false ↔
+      ∀ u ∈ S, ∀ v ∈ S, ¬ G.Adj u v := by
+  classical
+  have hpos : graphFun G ∅ (boundaryInput S) = true ↔
+      ∃ u v, G.Adj u v ∧ u ∈ S ∧ v ∈ S := by
+    simp [graphFun,boundaryInput]
+  constructor
+  · intro hf u hu v hv he
+    have ht := hpos.mpr ⟨u,v,he,hu,hv⟩
+    rw [hf] at ht
+    contradiction
+  · intro hind
+    cases he : graphFun G ∅ (boundaryInput S)
+    · rfl
+    · obtain ⟨u,v,ha,hu,hv⟩ := hpos.mp he
+      exact False.elim (hind u hu v hv ha)
+
+theorem numbered_and_eval_two_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (i j : Nat) (hJ : PEqualNP.TopForm.junk G C = {i,j})
+    (hc : InCone n C i j) (g : Nat) (hg : g < C.gates.length)
+    (hop : (gateAt C g).op = GateOp.and)
+    (x : Fin n → Bool) :
+    gateVal n C g x = true ↔
+      (∃ z ∈ numberedSupport G C (PEqualNP.TopForm.opnd C g 0),
+        twoJunkAtomValue n C i j x z = true) ∧
+      (∃ z ∈ numberedSupport G C (PEqualNP.TopForm.opnd C g 1),
+        twoJunkAtomValue n C i j x z = true) := by
+  have hin := (actual_opnds C hAO g hg).1
+  have ha := and_operand_support_subset G C hAO htop g hg hop
+    (PEqualNP.TopForm.opnd C g 0) (by rw [hin]; simp)
+  have hb := and_operand_support_subset G C hAO htop g hg hop
+    (PEqualNP.TopForm.opnd C g 1) (by rw [hin]; simp)
+  have hv := gateVal_and_eq C hAO.2.1 g _ _ hg hop hin x
+  change gateVal n C g x =
+    (wireVal n C (PEqualNP.TopForm.opnd C g 0) x &&
+     wireVal n C (PEqualNP.TopForm.opnd C g 1) x) at hv
+  rw [hv,Bool.and_eq_true_iff,
+    numbered_support_eval_two_junk G C hAO i j hJ hc _ ha x,
+    numbered_support_eval_two_junk G C hAO i j hJ hc _ hb x]
+
+theorem top_false_on_boundary {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hj : j ∈ PEqualNP.TopForm.tops G C)
+    (S : Finset (Fin n)) (hS : MaxFalseRow G S) :
+    gateVal n C j (boundaryInput S) = false := by
+  cases he : gateVal n C j (boundaryInput S)
+  · rfl
+  · have ht := (Finset.mem_filter.mp hj).2.2 _ he
+    rw [hS.1] at ht
+    contradiction
 
 end L2260FirstMerge
