@@ -3036,6 +3036,7 @@ namespace L2260FirstMerge
 open PEqualNP.CircuitLowerBounds
 open PEqualNP.EdgeOwnership
 open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
 
 attribute [local instance] gateOpDecEq
 
