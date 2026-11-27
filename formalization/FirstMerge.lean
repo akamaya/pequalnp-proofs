@@ -198,13 +198,15 @@ private theorem append_safe (wu wv wp : List Bool) (x : Sample)
     (hs : WireSafe wu wv wp) (hx : ¬ PairOnly x) :
     WireSafe (wu ++ [x.u]) (wv ++ [x.v]) (wp ++ [x.uv]) := by
   intro i
+  change ¬ PairOnly ⟨(wu ++ [x.u]).getD i false,
+    (wv ++ [x.v]).getD i false, (wp ++ [x.uv]).getD i false⟩
+  rw [getD_snoc wu x.u i, getD_snoc wv x.v i, getD_snoc wp x.uv i, ← hv, ← hp]
   by_cases hi : i = wu.length
-  · have he : wireSample (wu ++ [x.u]) (wv ++ [x.v]) (wp ++ [x.uv]) i = x := by
-      cases x
-      simp [wireSample, getD_snoc, ← hv, ← hp, hi]
-    rw [he]
+  · simp only [if_pos hi]
+    cases x
     exact hx
-  · simpa [wireSample, getD_snoc, ← hv, ← hp, hi] using hs i
+  · simp only [if_neg hi]
+    exact hs i
 
 private theorem two_inputs (l : List Nat) (h : l.length = 2) :
     ∃ a b, l = [a,b] := by
@@ -289,9 +291,9 @@ private theorem pair_inputs_safe {n : Nat} (u v : Fin n) :
   intro i
   by_cases hi : i < n
   · simp [wireSample, PairOnly, List.getD_eq_getElem?_getD,
-      List.getElem?_ofFn, hi, pairInput] <;> aesop
+      hi, pairInput]
   · simp [wireSample, PairOnly, List.getD_eq_getElem?_getD,
-      List.getElem?_ofFn, hi]
+      hi]
 
 private theorem graph_singleton_false {n : Nat} (G : SimpleGraph (Fin n))
     [DecidableRel G.Adj] (u : Fin n) :
