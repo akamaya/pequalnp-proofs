@@ -553,3 +553,29 @@ WSLで旧formalization/FirstMerge.leanの抽象補題が終了コード0（LEAN 
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CIRCUIT BRIDGE CHECK OK"
 ```
+
+### WSL: (7,6) complete; MDD benchmark unsuccessful
+
+v2 300秒/8並列で残り7分割を全UNSAT、111.424秒。31692/31692 UNSAT。暫定95/100、残り(k,r)=(5,8),(5,9),(5,10),(6,7),(6,8)。
+
+MDD k5 r8..10: 600.001秒、586 calls、130 UNSAT、batch_unsat=0、279 splits、177 leaf_timeouts、70607 remaining。初期グループ圧縮は実時間短縮に結び付かなかったため、この構成の長時間探索を中止する。結果は保持。
+
+Lean bridge: WSL append_safeのgetD_snocがsimpのgetD展開に先行できず型不一致（他はwarning）。getD_snocをrwで先に明示適用する修正。旧抽象補題は検証済み、新しい修正は未コンパイル。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CIRCUIT BRIDGE CHECK OK"
+```
+
+### Fixed partition benchmark
+
+pnp_graph_partition_fixed_bench_v1.py: 従来の固定分割・固定OR数のv19+exact式を維持し、effective singleton first merge、成分をまたぐoperandの禁止、成分別support-size上限、互いに非互換な辺のcliqueに対するjunk first-merge下限を追加。辺が異なる成分ペアに属するか端点が互いに素なら、一つのclean ANDが両方のfirst mergeを担うことはできない（NoFourCycleと成分補題）。したがってclique Cでjunk候補でない辺は高々k本。これらは未形式化の必要条件で、実機速度は未測定。自己テスト後、同じ乱数seedの各成分数32件（k5r8は128件）を旧式・新式で2秒ずつ比較する。結果はベンチ専用JSON、既存checkpointは変更しない。
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && .venv-sat/bin/python -u pnp_graph_partition_fixed_bench_v1.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_fixed_bench_v1.py --top-count 5 --or-count 8 --per-block 32 --jobs 8 --seconds 2 --solver cadical195
+```
+
+Lean形式化とUNSAT証明書検証は未完。6時間内の提出はまだ実証されていない。main変更なし。
