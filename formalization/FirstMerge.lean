@@ -532,3 +532,198 @@ theorem cross_pairs_same_blocks {α β : Type} (A B : Finset α)
   · exact Or.inr ⟨hB u hu,hA v hv⟩
 
 end L2260FirstMerge
+
+/-! ## Actual singleton supports of clean AND gates -/
+
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+def WireLe (w z : List Bool) : Prop :=
+  ∀ i, w.getD i false = true → z.getD i false = true
+
+private theorem append_le (w z : List Bool) (a b : Bool)
+    (hlen : w.length = z.length) (h : WireLe w z)
+    (hab : a = true → b = true) : WireLe (w ++ [a]) (z ++ [b]) := by
+  intro i hi
+  rw [getD_snoc] at hi
+  rw [getD_snoc, ← hlen]
+  by_cases he : i = w.length
+  · simp only [if_pos he] at hi ⊢
+    exact hab hi
+  · simp only [if_neg he] at hi ⊢
+    exact h i hi
+
+private theorem gateStep_le (w z : List Bool) (g : Gate)
+    (hlen : w.length = z.length) (h : WireLe w z)
+    (hop : g.op = GateOp.and ∨ g.op = GateOp.or)
+    (hin : g.inputs.length = 2) : WireLe (gateStep w g) (gateStep z g) := by
+  obtain ⟨a,b,hab⟩ := two_inputs g.inputs hin
+  unfold gateStep
+  apply append_le w z _ _ hlen h
+  rcases hop with ho | ho
+  · rw [ho, hab]
+    simp only [List.map_cons, List.map_nil, GateOp.eval, List.all_cons, List.all_nil,
+      id_eq, Bool.and_true, Bool.and_eq_true]
+    intro hh
+    exact ⟨h a hh.1,h b hh.2⟩
+  · rw [ho, hab]
+    simp only [List.map_cons, List.map_nil, GateOp.eval, List.any_cons, List.any_nil,
+      id_eq, Bool.or_false, Bool.or_eq_true]
+    intro hh
+    rcases hh with ha | hb
+    · exact Or.inl (h a ha)
+    · exact Or.inr (h b hb)
+
+theorem fold_le (gs : List Gate) (w z : List Bool)
+    (hlen : w.length = z.length) (h : WireLe w z)
+    (hm : ∀ g ∈ gs, (g.op = GateOp.and ∨ g.op = GateOp.or) ∧ g.inputs.length = 2) :
+    WireLe (gs.foldl gateStep w) (gs.foldl gateStep z) := by
+  induction gs generalizing w z with
+  | nil => exact h
+  | cons g gs ih =>
+      have hg := hm g (by simp)
+      apply ih (gateStep w g) (gateStep z g)
+      · simp [gateStep, hlen]
+      · exact gateStep_le w z g hlen h hg.1 hg.2
+      · intro g' hg'
+        exact hm g' (List.mem_cons.mpr (Or.inr hg'))
+
+/-- Monotonicity of every wire of a binary AND/OR circuit. -/
+theorem wire_monotone {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (x y : Fin n → Bool)
+    (hxy : ∀ v, x v = true → y v = true) :
+    WireLe (C.wires (List.ofFn x)) (C.wires (List.ofFn y)) := by
+  apply fold_le C.gates (List.ofFn x) (List.ofFn y) (by simp)
+  · intro i hi
+    by_cases h : i < n
+    · have hx : x ⟨i,h⟩ = true := by
+        simpa [List.getD_eq_getElem?_getD, h] using hi
+      simpa [List.getD_eq_getElem?_getD, h] using hxy ⟨i,h⟩ hx
+    · simp [List.getD_eq_getElem?_getD, h] at hi
+  · intro g hg
+    exact ⟨hAO.1 g hg,hAO.2.2 g hg⟩
+
+private theorem split_at_index {α : Type} (l : List α) (j : Nat)
+    (hj : j < l.length) :
+    ∃ pre g post, l = pre ++ g :: post ∧ pre.length = j := by
+  induction l generalizing j with
+  | nil => simp at hj
+  | cons a l ih =>
+      cases j with
+      | zero => exact ⟨[],a,l,rfl,rfl⟩
+      | succ j =>
+          have hj' : j < l.length := by
+            simp only [List.length_cons] at hj
+            omega
+          obtain ⟨pre,g,post,he,hpre⟩ := ih j hj'
+          refine ⟨a :: pre,g,post,?_,?_⟩
+          · simp [he]
+          · simp [hpre]
+
+/-- The actual gate value is the Boolean AND of its two final operand
+wire values. ReadsBack ensures that the final values equal the values
+seen at the time of evaluation. -/
+theorem gateVal_and_eq {n : Nat} (C : Circuit)
+    (hr : ReadsBack n C) (j a b : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.and)
+    (hin : (gateAt C j).inputs = [a,b]) (x : Fin n → Bool) :
+    gateVal n C j x =
+      ((C.wires (List.ofFn x)).getD a false &&
+       (C.wires (List.ofFn x)).getD b false) := by
+  obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj
+  have hat : gateAt C j = g := by
+    unfold gateAt
+    rw [hg, ← hpre]
+    exact split_getD pre post g _
+  have ha : a < n + pre.length := by
+    rw [hpre]
+    apply hr j hj a
+    rw [hin]
+    simp
+  have hb : b < n + pre.length := by
+    rw [hpre]
+    apply hr j hj b
+    rw [hin]
+    simp
+  have hop' : g.op = GateOp.and := hat ▸ hop
+  have hin' : g.inputs = [a,b] := hat ▸ hin
+  rw [prefix_wire C pre (g :: post) hg x a ha,
+    prefix_wire C pre (g :: post) hg x b hb]
+  let w := pre.foldl gateStep (List.ofFn x)
+  have hw : w.length = n+j := by
+    dsimp [w]
+    rw [fold_length, hpre]
+    simp
+  change (C.gates.foldl gateStep (List.ofFn x)).getD (n+j) false =
+    (w.getD a false && w.getD b false)
+  rw [hg, List.foldl_append]
+  change (post.foldl gateStep (gateStep w g)).getD (n+j) false = _
+  have hi : n+j < (gateStep w g).length := by
+    simp [gateStep, hw]
+  rw [fold_preserves_getD post (gateStep w g) (n+j) hi]
+  unfold gateStep
+  rw [getD_snoc, hw]
+  simp [hop', hin', GateOp.eval]
+
+/-- Effective singleton support: includes input truth conveyed through
+ANDs, unlike the raw OR-only support in TopForm.side. -/
+def effectiveSingletons {n : Nat} (C : Circuit) (w : Nat) : Finset (Fin n) :=
+  Finset.univ.filter fun u => (C.wires (List.ofFn (pairInput u u))).getD w false = true
+
+private theorem graph_pair_adj_of_true {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (u v : Fin n) (h : graphFun G ∅ (pairInput u v) = true) :
+    G.Adj u v := by
+  have hex : ∃ a b, G.Adj a b ∧ pairInput u v a = true ∧ pairInput u v b = true := by
+    simpa [graphFun] using h
+  obtain ⟨a,b,hab,ha,hb⟩ := hex
+  have ha' : a = u ∨ a = v := by simpa [pairInput] using ha
+  have hb' : b = u ∨ b = v := by simpa [pairInput] using hb
+  rcases ha' with rfl | rfl <;> rcases hb' with rfl | rfl
+  · exact False.elim ((G.ne_of_adj hab) rfl)
+  · exact hab
+  · exact hab.symm
+  · exact False.elim ((G.ne_of_adj hab) rfl)
+
+/-- Every crossing pair of effective singleton supports of a clean
+AND is an edge of G, including the exclusion of loops. -/
+theorem clean_effective_adj {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j a b : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.and) (hin : (gateAt C j).inputs = [a,b])
+    (hc : PEqualNP.TopForm.BelowF G C j)
+    (u v : Fin n) (hu : u ∈ effectiveSingletons C a) (hv : v ∈ effectiveSingletons C b) :
+    G.Adj u v := by
+  have hu' := (Finset.mem_filter.mp hu).2
+  have hv' := (Finset.mem_filter.mp hv).2
+  have hleft := wire_monotone C hAO (pairInput u u) (pairInput u v) (by
+    intro w h
+    simp [pairInput] at h ⊢
+    exact Or.inl h)
+  have hright := wire_monotone C hAO (pairInput v v) (pairInput u v) (by
+    intro w h
+    simp [pairInput] at h ⊢
+    exact Or.inr h)
+  have ht : gateVal n C j (pairInput u v) = true := by
+    rw [gateVal_and_eq C hAO.2.1 j a b hj hop hin]
+    rw [hleft a hu',hright b hv']
+    rfl
+  exact graph_pair_adj_of_true G u v (hc _ ht)
+
+/-- The effective singleton supports of an actual clean AND form a
+star in a no-four-cycle graph. -/
+theorem clean_effective_star {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (h4 : PEqualNP.TopForm.NoFourCycle G)
+    (j a b : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.and) (hin : (gateAt C j).inputs = [a,b])
+    (hc : PEqualNP.TopForm.BelowF G C j) :
+    (effectiveSingletons (n := n) C a).card ≤ 1 ∨
+      (effectiveSingletons (n := n) C b).card ≤ 1 := by
+  apply cross_card_le_one G h4
+  intro u hu v hv
+  exact clean_effective_adj G C hAO j a b hj hop hin hc u v hu hv
+
+end L2260FirstMerge
