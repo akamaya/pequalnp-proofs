@@ -8418,3 +8418,167 @@ theorem canonical_prefix_pruning_safe (l : Nat → Nat)
   omega
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: partition screening bounds -/
+namespace L2260FirstMerge
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+attribute [local instance] gateOpDecEq
+
+theorem and_cross_group_unique {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l)
+    (j : Nat) (hj : j < C.gates.length)
+    (hop : (gateAt C j).op = GateOp.and)
+    (u v x y : Fin n) (he : GateCross C j u v) (hf : GateCross C j x y) :
+    blockPairKey (fun a : Fin n => l a.val) u v =
+      blockPairKey (fun a : Fin n => l a.val) x y := by
+  have hloc (b : Fin 2) : SupportLocal (fun a : Fin n => l a.val)
+      (effectiveSingletons C (PEqualNP.TopForm.opnd C j b)) := by
+    have hr : PEqualNP.TopForm.opnd C j b ∈ (gateAt C j).inputs := by
+      fin_cases b <;> rw [(actual_opnds C hAO j hj).1] <;> simp
+    have hw := hAO.2.1 j hj _ hr
+    exact aux_effective_local G C hAO C.gates.length l hi _ (by omega)
+      (and_operand_support_subset G C hAO htop j hj hop _ hr)
+  exact same_block_pair_key _ u v x y
+    (local_cross_same_pair _ _ _ (hloc 0) (hloc 1) u v x y
+      (gate_cross_pair C j u v he) (gate_cross_pair C j x y hf))
+
+theorem junk_cross_groups {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l) :
+    ∃ D : Finset (Nat × Nat), D.card ≤ (PEqualNP.TopForm.junk G C).card ∧
+      ∀ j ∈ PEqualNP.TopForm.junk G C, ∀ u v : Fin n,
+        GateCross C j u v → blockPairKey (fun a : Fin n => l a.val) u v ∈ D := by
+  classical
+  let J := (PEqualNP.TopForm.junk G C).filter fun j =>
+    ∃ u v : Fin n, GateCross C j u v
+  let L := fun a : Fin n => l a.val
+  have hkey (j : J) : ∃ p : Nat × Nat, ∀ u v : Fin n,
+      GateCross C j.val u v → blockPairKey L u v = p := by
+    obtain ⟨hj,u,v,hcross⟩ := Finset.mem_filter.mp j.property
+    have hm := Finset.mem_filter.mp hj
+    refine ⟨blockPairKey L u v,?_⟩
+    intro x y hxy
+    exact and_cross_group_unique G C hAO htop l hi j.val
+      (Finset.mem_range.mp hm.1) hm.2.1 x y u v hxy hcross
+  let pick : J → Nat × Nat := fun j => Classical.choose (hkey j)
+  let D := J.attach.image pick
+  have hcard : D.card ≤ (PEqualNP.TopForm.junk G C).card := by
+    have h := Finset.card_image_le (s := J.attach) (f := pick)
+    rw [Finset.card_attach] at h
+    exact h.trans (Finset.card_le_card (Finset.filter_subset _ _))
+  refine ⟨D,hcard,?_⟩
+  intro j hj u v hcross
+  let a : J := ⟨j,Finset.mem_filter.mpr ⟨hj,u,v,hcross⟩⟩
+  have hm : pick a ∈ D := Finset.mem_image.mpr ⟨a,Finset.mem_attach _ _,rfl⟩
+  have he := Classical.choose_spec (hkey a) u v hcross
+  change blockPairKey L u v = pick a at he
+  rw [he]
+  exact hm
+
+/-- Removing at most the number of junk ANDs worth of groups
+leaves a sum of exact cover costs bounded by the clean AND count. -/
+theorem generic_partition_cover_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (h4 : PEqualNP.TopForm.NoFourCycle G)
+    (l : Nat → Nat) (hi : AuxInvariant G C C.gates.length l)
+    (T : Finset (Nat × Nat)) (E : (Nat × Nat) → List (Fin n × Fin n))
+    (hE : ∀ g ∈ T, ∀ e ∈ E g,
+      G.Adj e.1 e.2 ∧ blockPairKey (fun a : Fin n => l a.val) e.1 e.2 = g) :
+    ∃ D : Finset (Nat × Nat), D.card ≤ (PEqualNP.TopForm.junk G C).card ∧
+      (∑ g ∈ T \ D, exactCoverCost (E g)) ≤ (PEqualNP.TopForm.tops G C).card := by
+  classical
+  obtain ⟨D,hD,hd⟩ := junk_cross_groups G C hmin.1 htop l hi
+  obtain ⟨S,hS,hs⟩ := residual_grouped_cover G C hmin htop h4 l hi
+  refine ⟨D,hD,?_⟩
+  have hsum : (∑ g ∈ T \ D, exactCoverCost (E g)) ≤
+      ∑ g ∈ T \ D, (groupCenters S g).card := by
+    apply Finset.sum_le_sum
+    intro g hg
+    obtain ⟨hgT,hgD⟩ := Finset.mem_sdiff.mp hg
+    unfold exactCoverCost
+    apply cover_cost_lower
+    intro e he
+    obtain ⟨hadj,hkey⟩ := hE g hgT e he
+    have hn : ∀ j ∈ PEqualNP.TopForm.junk G C, ¬ GateCross C j e.1 e.2 := by
+      intro j hj hc
+      have h := hd j hj e.1 e.2 hc
+      rw [hkey] at h
+      exact hgD h
+    have h := hs e.1 e.2 hadj hn
+    rw [hkey] at h
+    rcases h with h | h
+    · exact Or.inl ((mem_group_centers_iff S g e.1).mpr h)
+    · exact Or.inr ((mem_group_centers_iff S g e.2).mpr h)
+  exact hsum.trans ((grouped_center_sum_le (T \ D) S).trans hS)
+
+theorem tight_no_attached_free_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l)
+    (htight : n = ((Finset.range n).image l).card+(PEqualNP.TopForm.orN G C).card)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.junk G C)
+    (hn : ¬ (effectiveSingletons (n := n) C (n+j)).Nonempty) :
+    l (n+j) ∉ (Finset.range n).image l := by
+  intro h
+  have hm : j ∈ attachedFreeJunk G C l :=
+    Finset.mem_filter.mpr ⟨hj,h,hn⟩
+  have hp := Finset.card_pos.mpr ⟨j,hm⟩
+  have hbudget := attached_free_junk_budget G C l hb
+  omega
+
+theorem tight_all_or_in_raw_classes {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l)
+    (htight : n = ((Finset.range n).image l).card+(PEqualNP.TopForm.orN G C).card) :
+    localDirtyOrGates G C ((atomUniverse G C).filter
+      fun a => l a ∈ (Finset.range n).image l) = PEqualNP.TopForm.orN G C := by
+  classical
+  have h := raw_and_free_junk_budget G C l hb ((Finset.range n).image l) ∅
+    (fun _ h => h) (by simp)
+  rw [Finset.card_empty,Nat.add_zero] at h
+  apply Finset.eq_of_subset_of_card_le (local_dirty_or_subset G C _)
+  omega
+
+theorem tight_nonbearing_no_or_support {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l)
+    (htight : n = ((Finset.range n).image l).card+(PEqualNP.TopForm.orN G C).card)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.junk G C)
+    (hn : ¬ (effectiveSingletons (n := n) C (n+j)).Nonempty)
+    (g : Nat) (hg : g ∈ internalOrGates G C) :
+    n+j ∉ symbolicSupport n C (n+g) := by
+  intro ha
+  have hg' := hg
+  rw [internal_or_eq_orN G C hmin htop,
+    ← tight_all_or_in_raw_classes G C l hb htight] at hg'
+  have hsub := (Finset.mem_filter.mp hg').2.2.2
+  have hraw := (Finset.mem_filter.mp (hsub ha)).2
+  exact tight_no_attached_free_junk G C l hb htight j hj hn hraw
+
+theorem tight_nonbearing_operand_direct {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l)
+    (htight : n = ((Finset.range n).image l).card+(PEqualNP.TopForm.orN G C).card)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.junk G C)
+    (hn : ¬ (effectiveSingletons (n := n) C (n+j)).Nonempty)
+    (g : Nat) (hg : g < C.gates.length) (hop : (gateAt C g).op = GateOp.and)
+    (w : Nat) (hw : w ∈ (gateAt C g).inputs)
+    (ha : n+j ∈ symbolicSupport n C w) :
+    w = n+j := by
+  have hlt := hmin.1.2.1 g hg w hw
+  have hs := and_operand_support_subset G C hmin.1 htop g hg hop w hw
+  rcases classify_internal_source G C hmin.1 w (by omega) hs with ⟨_,he⟩ | ⟨a,ham,he⟩
+  · rw [he] at ha
+    exact (Finset.mem_singleton.mp ha).symm
+  · rw [he] at ha
+    exact False.elim (tight_nonbearing_no_or_support G C hmin htop l hb htight j hj hn a ham ha)
+
+end L2260FirstMerge
