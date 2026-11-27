@@ -615,3 +615,11 @@ WSLの最新報告はLEAN INDEXED FIRST MERGE CHECK OK（終了コード0、警�
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CROSS STAR CHECK OK"
 ```
+
+### Clean effective singleton star bridge
+
+WSL commit 3c07cab confirmed LEAN CROSS STAR CHECK OK; all previous indexed and graph-star lemmas compiled successfully (warnings only). Added wire_monotone, gateVal_and_eq, effectiveSingletons, clean_effective_adj and clean_effective_star, connecting actual clean AND values to the star theorem. New section not compiled yet. Component locality, rank, clique counting, normalized encoding soundness and certificates remain incomplete. SAT source/checkpoints unchanged.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CLEAN EFFECTIVE STAR CHECK OK"
+```
