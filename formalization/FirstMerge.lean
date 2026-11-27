@@ -5056,8 +5056,7 @@ theorem retained_index_gate (n : Nat) (S : Finset Nat) (j : Nat) :
     retainedIndex n S (n+j) = n+indexRank S j := by
   unfold retainedIndex
   rw [if_neg (show ¬ n+j < n by omega)]
-  congr 1
-  omega
+  rw [show n+j-n = j by omega]
 
 /-- A backward-closed retained set can be rebuilt in the official AO2
 model, with an exact gate count and preservation of every retained
@@ -5184,5 +5183,230 @@ theorem extract_closed_subcircuit {n : Nat} (C : Circuit)
   unfold indexRank at hlen
   rw [he] at hlen
   exact ⟨D,hD,hlen,hval⟩
+
+end L2260FirstMerge
+
+
+/-! ## Rebuilding the output and private-edge minimality
+
+The remaining physical gates are unchanged semantically. Append a
+binary OR chain over the chosen terminal wires, costing exactly
+one gate per additional wire.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem append_or_chain {n : Nat} (T : Finset Nat) (D : Circuit)
+    (seed : Nat) (hAO : PEqualNP.TopForm.IsAO2 n D)
+    (hseed : seed < n+D.gates.length)
+    (hbound : ∀ w ∈ T, w < n+D.gates.length) :
+    ∃ E : Circuit, PEqualNP.TopForm.IsAO2 n E ∧
+      E.gates.length = D.gates.length+T.card ∧
+      ∀ x : Fin n → Bool, E.eval (List.ofFn x) = true ↔
+        wireVal n D seed x = true ∨ ∃ w ∈ T, wireVal n D w x = true := by
+  classical
+  induction T using Finset.induction_on generalizing D seed with
+  | empty =>
+      let E : Circuit := ⟨D.gates,seed⟩
+      refine ⟨E,hAO,by simp [E],?_⟩
+      intro x
+      change wireVal n D seed x = true ↔
+        wireVal n D seed x = true ∨ ∃ w ∈ (∅ : Finset Nat),
+          wireVal n D w x = true
+      simp
+  | @insert a T ha ih =>
+      let g : Gate := ⟨GateOp.or,[seed,a]⟩
+      let B := appendPhysicalGate D g
+      have hab := hbound a (Finset.mem_insert_self a T)
+      have hB : PEqualNP.TopForm.IsAO2 n B := by
+        apply append_physical_ao D hAO g (Or.inr rfl) (by simp [g])
+        intro w hw
+        change w ∈ [seed,a] at hw
+        simp only [List.mem_cons,List.mem_singleton] at hw
+        rcases hw with rfl | rfl
+        · exact hseed
+        · exact hab
+      have hlen : B.gates.length = D.gates.length+1 := by
+        simp [B,appendPhysicalGate]
+      have hbound' : ∀ w ∈ T, w < n+B.gates.length := by
+        intro w hw
+        have h := hbound w (Finset.mem_insert_of_mem hw)
+        omega
+      obtain ⟨E,hE,hElen,hval⟩ := ih B (n+D.gates.length) hB
+        (by omega) hbound'
+      refine ⟨E,hE,?_,?_⟩
+      · rw [Finset.card_insert_of_notMem ha, hElen,hlen]
+        omega
+      · intro x
+        rw [hval x]
+        have hv : wireVal n B (n+D.gates.length) x =
+            (wireVal n D seed x || wireVal n D a x) := by
+          change wireVal n (appendPhysicalGate D g) (n+D.gates.length) x = _
+          rw [append_physical_new_wire]
+          simp [g,GateOp.eval]
+        rw [hv,Bool.or_eq_true]
+        have hrest : (∃ w ∈ T, wireVal n B w x = true) ↔
+            ∃ w ∈ T, wireVal n D w x = true := by
+          constructor
+          · rintro ⟨w,hw,ht⟩
+            have hb := hbound w (Finset.mem_insert_of_mem hw)
+            have he := append_physical_old_wire D g x w hb
+            exact ⟨w,hw,he.symm.trans ht⟩
+          · rintro ⟨w,hw,ht⟩
+            have hb := hbound w (Finset.mem_insert_of_mem hw)
+            have he := append_physical_old_wire D g x w hb
+            exact ⟨w,hw,he.trans ht⟩
+        rw [hrest]
+        constructor
+        · rintro ((hs | hs) | ⟨w,hw,ht⟩)
+          · exact Or.inl hs
+          · exact Or.inr ⟨a,Finset.mem_insert_self a T,hs⟩
+          · exact Or.inr ⟨w,Finset.mem_insert_of_mem hw,ht⟩
+        · rintro (hs | ⟨w,hw,ht⟩)
+          · exact Or.inl (Or.inl hs)
+          · rcases Finset.mem_insert.mp hw with rfl | hm
+            · exact Or.inl (Or.inr ht)
+            · exact Or.inr ⟨w,hm,ht⟩
+
+theorem rebuild_or_of_wires {n : Nat} (T : Finset Nat) (D : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n D) (hne : T.Nonempty)
+    (hbound : ∀ w ∈ T, w < n+D.gates.length) :
+    ∃ E : Circuit, PEqualNP.TopForm.IsAO2 n E ∧
+      E.gates.length = D.gates.length+(T.card-1) ∧
+      ∀ x : Fin n → Bool, E.eval (List.ofFn x) = true ↔
+        ∃ w ∈ T, wireVal n D w x = true := by
+  classical
+  obtain ⟨a,ha⟩ := hne
+  obtain ⟨E,hE,hlen,hval⟩ := append_or_chain (T.erase a) D a hAO
+    (hbound a ha) (fun w hw => hbound w (Finset.mem_erase.mp hw).2)
+  refine ⟨E,hE,?_,?_⟩
+  · rw [hlen,Finset.card_erase_of_mem ha]
+  · intro x
+    rw [hval x]
+    constructor
+    · rintro (ht | ⟨w,hw,ht⟩)
+      · exact ⟨a,ha,ht⟩
+      · exact ⟨w,(Finset.mem_erase.mp hw).2,ht⟩
+    · rintro ⟨w,hw,ht⟩
+      by_cases he : w = a
+      · subst w
+        exact Or.inl ht
+      · exact Or.inr ⟨w,Finset.mem_erase.mpr ⟨he,hw⟩,ht⟩
+
+/-- Remove all clean ORs. Keep every other physical gate, including
+the redundant top itself. Rebuilding the smaller terminal OR alone
+already saves at least one gate, which suffices for minimality. -/
+theorem least_top_private_edge {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (u v : Fin n) (he : G.Adj u v)
+    (i : Nat) (hi : i ∈ PEqualNP.TopForm.tops G C) :
+    ∃ a b : Fin n, G.Adj a b ∧
+      gateVal n C i (pairInput a b) = true ∧
+      ∀ j ∈ PEqualNP.TopForm.tops G C, j ≠ i →
+        gateVal n C j (pairInput a b) = false := by
+  classical
+  by_contra hn
+  let O := PEqualNP.TopForm.orT G C
+  let S := Finset.range C.gates.length \ O
+  let R := (PEqualNP.TopForm.tops G C).erase i
+  have hO : O ⊆ Finset.range C.gates.length :=
+    fun j hj => (Finset.mem_filter.mp hj).1
+  have hS : S ⊆ Finset.range C.gates.length :=
+    fun j hj => (Finset.mem_sdiff.mp hj).1
+  have hclosed : ∀ j ∈ S, ∀ w ∈ (gateAt C j).inputs, retainedWire n S w := by
+    intro j hj w hw
+    have hjlt := Finset.mem_range.mp (hS hj)
+    have hjn := (Finset.mem_sdiff.mp hj).2
+    have hwlt := hmin.1.2.1 j hjlt w hw
+    by_cases hraw : w < n
+    · exact Or.inl hraw
+    · have hidx : n+(w-n) = w := by omega
+      apply Or.inr
+      apply Finset.mem_sdiff.mpr
+      refine ⟨Finset.mem_range.mpr (by omega),?_⟩
+      intro ho
+      have hh := nonclean_or_no_clean_or_input G C hmin htop j hjlt hjn
+        (w-n) ho
+      apply hh
+      rw [hidx]
+      exact hw
+  obtain ⟨D,hD,hlen,hval⟩ := extract_closed_subcircuit C hmin.1 S hS hclosed
+  have hkeep : ∀ j ∈ R, j ∈ S := by
+    intro j hj
+    have hm := Finset.mem_filter.mp (Finset.mem_erase.mp hj).2
+    apply Finset.mem_sdiff.mpr
+    refine ⟨hm.1,?_⟩
+    intro ho
+    have hop := (Finset.mem_filter.mp ho).2.1
+    rw [hm.2.1] at hop
+    contradiction
+  have hsem (x : Fin n → Bool) := no_private_edge_cover G C hmin i hi hn x
+  obtain ⟨a,ha,_⟩ := (hsem (pairInput u v)).mp (graph_pair_true G u v he)
+  let f := fun j : Nat => retainedIndex n S (n+j)
+  let T := R.image f
+  have hne : T.Nonempty := ⟨f a,Finset.mem_image.mpr ⟨a,ha,rfl⟩⟩
+  have hbound : ∀ w ∈ T, w < n+D.gates.length := by
+    intro w hw
+    obtain ⟨j,hj,rfl⟩ := Finset.mem_image.mp hw
+    change retainedIndex n S (n+j) < n+D.gates.length
+    rw [retained_index_gate,hlen]
+    have hh := index_rank_lt_card S j (hkeep j hj)
+    omega
+  obtain ⟨E,hEAO,hElen,hE⟩ := rebuild_or_of_wires T D hD hne hbound
+  have hv : ∀ j ∈ R, ∀ x : Fin n → Bool,
+      wireVal n D (f j) x = gateVal n C j x := by
+    intro j hj x
+    have hjlt := Finset.mem_range.mp (hS (hkeep j hj))
+    have hr : retainedWire n S (n+j) := by
+      apply Or.inr
+      rw [show n+j-n = j by omega]
+      exact hkeep j hj
+    exact hval (n+j) (by omega) hr x
+  have hfun : PEqualNP.MetaComplexity.circuitFun n E = graphFun G ∅ := by
+    funext x
+    change E.eval (List.ofFn x) = graphFun G ∅ x
+    have hiff : E.eval (List.ofFn x) = true ↔ graphFun G ∅ x = true := by
+      rw [hE x,hsem x]
+      constructor
+      · rintro ⟨w,hw,ht⟩
+        obtain ⟨j,hj,rfl⟩ := Finset.mem_image.mp hw
+        exact ⟨j,hj,(hv j hj x).symm.trans ht⟩
+      · rintro ⟨j,hj,ht⟩
+        exact ⟨f j,Finset.mem_image.mpr ⟨j,hj,rfl⟩,(hv j hj x).trans ht⟩
+    cases ha : E.eval (List.ofFn x) <;> cases hb : graphFun G ∅ x <;>
+      simp_all
+  have hbudget := clean_output_or_budget G C hmin htop u v he
+  have hTcard : T.card ≤ R.card := Finset.card_image_le
+  have hRcard : R.card = (PEqualNP.TopForm.tops G C).card-1 :=
+    Finset.card_erase_of_mem hi
+  have hTpos : 0 < T.card := Finset.card_pos.mpr hne
+  have hdis : Disjoint S O := by
+    apply Finset.disjoint_left.mpr
+    intro j hj ho
+    exact (Finset.mem_sdiff.mp hj).2 ho
+  have hunion : S ∪ O = Finset.range C.gates.length := by
+    ext j
+    constructor
+    · intro hj
+      rcases Finset.mem_union.mp hj with hs | ho
+      · exact hS hs
+      · exact hO ho
+    · intro hj
+      by_cases ho : j ∈ O
+      · exact Finset.mem_union.mpr (Or.inr ho)
+      · exact Finset.mem_union.mpr (Or.inl (Finset.mem_sdiff.mpr ⟨hj,ho⟩))
+  have hcount := Finset.card_union_of_disjoint hdis
+  rw [hunion,Finset.card_range] at hcount
+  have hleast := hmin.2.2 E hEAO hfun
+  change C.gates.length ≤ E.gates.length at hleast
+  change (PEqualNP.TopForm.tops G C).card ≤ 1+O.card at hbudget
+  rw [hElen,hlen] at hleast
+  omega
 
 end L2260FirstMerge
