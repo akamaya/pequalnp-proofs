@@ -7794,11 +7794,11 @@ theorem clean_and_grouped_center {n : Nat} (G : SimpleGraph (Fin n))
       (actual_opnds C hAO j hj').1 hm.2.2
   have hu : CrossPair A B u v := gate_cross_pair C j u v he
   have hneA : A.Nonempty := by
-    rcases hu with ⟨hu,hv⟩ | ⟨hu,hv⟩
+    rcases hu with ⟨hu,hv⟩ | ⟨hv,hu⟩
     · exact ⟨u,hu⟩
     · exact ⟨v,hv⟩
   have hneB : B.Nonempty := by
-    rcases hu with ⟨hu,hv⟩ | ⟨hu,hv⟩
+    rcases hu with ⟨hu,hv⟩ | ⟨hv,hu⟩
     · exact ⟨v,hv⟩
     · exact ⟨u,hu⟩
   rcases hs with hs | hs
@@ -7808,7 +7808,7 @@ theorem clean_and_grouped_center {n : Nat} (G : SimpleGraph (Fin n))
     have hh : CrossPair A B x y := gate_cross_pair C j x y hxy
     refine ⟨?_,same_block_pair_key l u v x y
       (local_cross_same_pair l A B hA hB u v x y hu hh)⟩
-    rcases hh with ⟨hx,hy⟩ | ⟨hx,hy⟩
+    rcases hh with ⟨hx,hy⟩ | ⟨hy,hx⟩
     · exact Or.inl (Finset.card_le_one.mp hs c hc x hx)
     · exact Or.inr (Finset.card_le_one.mp hs c hc y hy)
   · obtain ⟨c,hc⟩ := hneB
@@ -7817,7 +7817,7 @@ theorem clean_and_grouped_center {n : Nat} (G : SimpleGraph (Fin n))
     have hh : CrossPair A B x y := gate_cross_pair C j x y hxy
     refine ⟨?_,same_block_pair_key l u v x y
       (local_cross_same_pair l A B hA hB u v x y hu hh)⟩
-    rcases hh with ⟨hx,hy⟩ | ⟨hx,hy⟩
+    rcases hh with ⟨hx,hy⟩ | ⟨hy,hx⟩
     · exact Or.inr (Finset.card_le_one.mp hs c hc y hy)
     · exact Or.inl (Finset.card_le_one.mp hs c hc x hx)
 
