@@ -5570,3 +5570,234 @@ theorem nested_junk_numbered_operand {n : Nat} (G : SimpleGraph (Fin n))
   exact ⟨hij,w,hw,Finset.mem_image.mpr ⟨n+i,hm,rfl⟩⟩
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: counts, atom numbering and evaluation
+
+These are necessary properties of a physical least top-form circuit.
+They do not assert correctness of an external CNF generator or of an
+external UNSAT result.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem junk_not_below {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hj : j ∈ PEqualNP.TopForm.junk G C) :
+    ¬ PEqualNP.TopForm.BelowF G C j := by
+  obtain ⟨_,_,x,hx,hf⟩ := (Finset.mem_filter.mp hj).2
+  intro h
+  have ht := h x hx
+  rw [hf] at ht
+  contradiction
+
+theorem and_not_below_is_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (hd : ¬ PEqualNP.TopForm.BelowF G C j) :
+    j ∈ PEqualNP.TopForm.junk G C := by
+  classical
+  unfold PEqualNP.TopForm.BelowF at hd
+  push_neg at hd
+  obtain ⟨x,hx,hf⟩ := hd
+  have hex : ∃ x : Fin n → Bool, gateVal n C j x = true ∧
+      graphFun G ∅ x = false :=
+    ⟨x,hx,by cases h : graphFun G ∅ x <;> simp_all⟩
+  exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,hj,hex⟩
+
+theorem ao_gate_count {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) :
+    C.gates.length = (PEqualNP.TopForm.tops G C).card +
+      (PEqualNP.TopForm.junk G C).card +
+      (PEqualNP.TopForm.orT G C).card +
+      (PEqualNP.TopForm.orN G C).card := by
+  classical
+  let T := PEqualNP.TopForm.tops G C
+  let J := PEqualNP.TopForm.junk G C
+  let O := PEqualNP.TopForm.orT G C
+  let N := PEqualNP.TopForm.orN G C
+  have hTJ : Disjoint T J := by
+    apply Finset.disjoint_left.mpr
+    intro j ht hj
+    exact junk_not_below G C j hj (Finset.mem_filter.mp ht).2.2
+  have hON : Disjoint O N := by
+    apply Finset.disjoint_left.mpr
+    intro j ho hn
+    exact (Finset.mem_filter.mp hn).2.2 (Finset.mem_filter.mp ho).2.2
+  have hcross : Disjoint (T ∪ J) (O ∪ N) := by
+    apply Finset.disjoint_left.mpr
+    intro j ha hb
+    have hand : (gateAt C j).op = GateOp.and := by
+      rcases Finset.mem_union.mp ha with ht | hj
+      · exact (Finset.mem_filter.mp ht).2.1
+      · exact (Finset.mem_filter.mp hj).2.1
+    have hor : (gateAt C j).op = GateOp.or := by
+      rcases Finset.mem_union.mp hb with ho | hn
+      · exact (Finset.mem_filter.mp ho).2.1
+      · exact (Finset.mem_filter.mp hn).2.1
+    rw [hand] at hor
+    contradiction
+  have hU : (T ∪ J) ∪ (O ∪ N) = Finset.range C.gates.length := by
+    ext j
+    constructor
+    · intro hm
+      rcases Finset.mem_union.mp hm with ha | hb
+      · rcases Finset.mem_union.mp ha with ht | hj
+        · exact (Finset.mem_filter.mp ht).1
+        · exact (Finset.mem_filter.mp hj).1
+      · rcases Finset.mem_union.mp hb with ho | hn
+        · exact (Finset.mem_filter.mp ho).1
+        · exact (Finset.mem_filter.mp hn).1
+    · intro hm
+      have hj := Finset.mem_range.mp hm
+      rcases hAO.1 _ (actual_gate_mem C j hj) with hand | hor
+      · apply Finset.mem_union.mpr
+        left
+        apply Finset.mem_union.mpr
+        by_cases h : PEqualNP.TopForm.BelowF G C j
+        · exact Or.inl (Finset.mem_filter.mpr ⟨hm,hand,h⟩)
+        · exact Or.inr (and_not_below_is_junk G C j hj hand h)
+      · apply Finset.mem_union.mpr
+        right
+        apply Finset.mem_union.mpr
+        by_cases h : PEqualNP.TopForm.BelowF G C j
+        · exact Or.inl (Finset.mem_filter.mpr ⟨hm,hor,h⟩)
+        · exact Or.inr (Finset.mem_filter.mpr ⟨hm,hor,h⟩)
+  have h := Finset.card_union_of_disjoint hcross
+  rw [hU,Finset.card_range,Finset.card_union_of_disjoint hTJ,
+    Finset.card_union_of_disjoint hON] at h
+  change C.gates.length = T.card+J.card+O.card+N.card
+  omega
+
+theorem nested_junk_codes {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (i j : Nat)
+    (hJ : PEqualNP.TopForm.junk G C = {i,j}) (hc : InCone n C i j) :
+    (PEqualNP.TopForm.junk G C).card = 2 ∧
+    sourceCode G C (n+i) = n ∧ sourceCode G C (n+j) = n+1 := by
+  classical
+  have hi : i ∈ PEqualNP.TopForm.junk G C := by rw [hJ]; simp
+  have hj : j ∈ PEqualNP.TopForm.junk G C := by rw [hJ]; simp
+  have hlt := real_cone_lt C i j (Finset.mem_range.mp (Finset.mem_filter.mp hj).1) hc
+  have hcard : (PEqualNP.TopForm.junk G C).card = 2 := by
+    rw [hJ,Finset.card_insert_of_notMem]
+    · simp
+    · simp [Nat.ne_of_lt hlt]
+  have hri := index_rank_lt_card _ i hi
+  have hrj := index_rank_lt_card _ j hj
+  have hr := index_rank_strict _ i j hi hlt
+  rw [hcard] at hri hrj
+  refine ⟨hcard,?_,?_⟩
+  · rw [source_code_junk G C i hi]
+    omega
+  · rw [source_code_junk G C j hj]
+    omega
+
+theorem sat_gate_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (u v : Fin n) (he : G.Adj u v)
+    (hJ : (PEqualNP.TopForm.junk G C).card = 2) :
+    0 < (PEqualNP.TopForm.tops G C).card ∧
+    2*(PEqualNP.TopForm.tops G C).card+1+
+      (internalOrGates G C).card ≤ C.size := by
+  have hcount := ao_gate_count G C hmin.1
+  have hb := clean_output_or_budget G C hmin htop u v he
+  obtain ⟨j,hj,_⟩ := (graph_eq_or_of_tops G C hmin u v he (pairInput u v)).mp
+    (graph_pair_true G u v he)
+  have hp := Finset.card_pos.mpr (show (PEqualNP.TopForm.tops G C).Nonempty from ⟨j,hj⟩)
+  rw [hJ] at hcount
+  rw [internal_or_eq_orN G C hmin htop]
+  refine ⟨hp,?_⟩
+  change _ ≤ C.gates.length
+  omega
+
+/-- Every numbered support is contained in the raw/junk atom range,
+rather than the larger selector range which includes OR nodes. -/
+theorem numbered_atom_range {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) :
+    numberedSupport G C w ⊆
+      Finset.range (n+(PEqualNP.TopForm.junk G C).card) := by
+  intro z hz
+  obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+  rcases Finset.mem_union.mp (hs ha) with hr | hj
+  · have hlt := Finset.mem_range.mp hr
+    rw [← he,source_code_raw G C a hlt]
+    exact Finset.mem_range.mpr (by omega)
+  · obtain ⟨j,hj,he'⟩ := Finset.mem_image.mp hj
+    rw [← he,← he',source_code_junk G C j hj]
+    have hlt := index_rank_lt_card _ j hj
+    exact Finset.mem_range.mpr (by omega)
+
+/-- Membership in a numbered support preserves the physical atom
+membership: the numbering map is injective on the entire source pool. -/
+theorem numbered_support_mem_iff {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w a : Nat)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C)
+    (ha : a ∈ atomUniverse G C) :
+    sourceCode G C a ∈ numberedSupport G C w ↔
+      a ∈ symbolicSupport n C w := by
+  constructor
+  · intro hm
+    obtain ⟨b,hb,he⟩ := Finset.mem_image.mp hm
+    have h := source_code_injective G C b a
+      (Finset.mem_union.mpr (Or.inl (hs hb)))
+      (Finset.mem_union.mpr (Or.inl ha)) he
+    simpa [h] using hb
+  · intro hm
+    exact Finset.mem_image.mpr ⟨a,hm,rfl⟩
+
+/-- Interpret atom bits n and n+1 as the actual two junk values,
+and lower bits as the input values. This agrees with physical OR
+evaluation for every input row, not just tested boundary rows. -/
+def twoJunkAtomValue (n : Nat) (C : Circuit) (i j : Nat)
+    (x : Fin n → Bool) (z : Nat) : Bool :=
+  if h : z < n then x ⟨z,h⟩
+  else if z = n then gateVal n C i x
+  else if z = n+1 then gateVal n C j x else false
+
+theorem two_junk_atom_value_correct {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (i j : Nat)
+    (hJ : PEqualNP.TopForm.junk G C = {i,j}) (hc : InCone n C i j)
+    (x : Fin n → Bool) (a : Nat) (ha : a ∈ atomUniverse G C) :
+    twoJunkAtomValue n C i j x (sourceCode G C a) = wireVal n C a x := by
+  classical
+  obtain ⟨_,hi,hj⟩ := nested_junk_codes G C i j hJ hc
+  rcases Finset.mem_union.mp ha with hr | hh
+  · have hlt := Finset.mem_range.mp hr
+    rw [source_code_raw G C a hlt]
+    simp only [twoJunkAtomValue,dif_pos hlt]
+    exact (raw_wire_value C x ⟨a,hlt⟩).symm
+  · obtain ⟨k,hk,he⟩ := Finset.mem_image.mp hh
+    rw [hJ] at hk
+    have hk' : k = i ∨ k = j := by simpa using hk
+    rcases hk' with rfl | rfl
+    · rw [← he,hi]
+      simp [twoJunkAtomValue,wireVal,gateVal]
+    · rw [← he,hj]
+      have hn : n+1 ≠ n := by omega
+      simp [twoJunkAtomValue,hn,wireVal,gateVal]
+
+theorem numbered_support_eval_two_junk {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (i j : Nat) (hJ : PEqualNP.TopForm.junk G C = {i,j})
+    (hc : InCone n C i j) (w : Nat)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) (x : Fin n → Bool) :
+    wireVal n C w x = true ↔
+      ∃ z ∈ numberedSupport G C w, twoJunkAtomValue n C i j x z = true := by
+  rw [symbolic_eval C hAO x w]
+  constructor
+  · rintro ⟨a,ha,ht⟩
+    exact ⟨sourceCode G C a,Finset.mem_image.mpr ⟨a,ha,rfl⟩,
+      (two_junk_atom_value_correct G C i j hJ hc x a (hs ha)).trans ht⟩
+  · rintro ⟨z,hz,ht⟩
+    obtain ⟨a,ha,rfl⟩ := Finset.mem_image.mp hz
+    exact ⟨a,ha,(two_junk_atom_value_correct G C i j hJ hc x a (hs ha)).symm.trans ht⟩
+
+end L2260FirstMerge
