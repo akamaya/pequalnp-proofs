@@ -1667,3 +1667,152 @@ theorem and_operand_atoms_junk {n : Nat} (G : SimpleGraph (Fin n))
   exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hil,hiop,hil,hex⟩
 
 end L2260FirstMerge
+
+/-! ## Full symbolic evaluation and the raw/junk atom universe
+
+For the auxiliary partition it suffices initially to consider supports
+contained in the raw/junk universe. Every AND operand has such a
+support by TopForm. Any OR with such a support is dirty, so these
+ORs can be charged to orN without first deleting unused gates.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem symbolic_nonempty (n : Nat) (C : Circuit) (w : Nat) :
+    (symbolicSupport n C w).Nonempty := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases h : Expandable n C w
+      · rw [symbolic_expand n C w h]
+        obtain ⟨a,ha⟩ := ih _ h.2.2.2.1
+        exact ⟨a,Finset.mem_union.mpr (Or.inl ha)⟩
+      · rw [symbolic_atom n C w h]
+        exact ⟨w,Finset.mem_singleton.mpr rfl⟩
+
+/-- OR expansion agrees with the actual evaluation on every input,
+not just singleton inputs. -/
+theorem symbolic_eval {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (x : Fin n → Bool) (w : Nat) :
+    wireVal n C w x = true ↔
+      ∃ a ∈ symbolicSupport n C w, wireVal n C a x = true := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases h : Expandable n C w
+      · obtain ⟨hn,hw,hop,ha,hb⟩ := h
+        have hj : w-n < C.gates.length := by omega
+        have he : n+(w-n) = w := by omega
+        have hv := gateVal_or_eq C hAO.2.1 (w-n) _ _ hj hop
+          (actual_opnds C hAO (w-n) hj).1 x
+        change wireVal n C (n+(w-n)) x =
+          (wireVal n C (PEqualNP.TopForm.opnd C (w-n) 0) x ||
+            wireVal n C (PEqualNP.TopForm.opnd C (w-n) 1) x) at hv
+        rw [he] at hv
+        rw [hv, Bool.or_eq_true_iff, ih _ ha, ih _ hb,
+          symbolic_expand n C w ⟨hn,hw,hop,ha,hb⟩]
+        constructor
+        · rintro (⟨a,hm,ht⟩ | ⟨a,hm,ht⟩)
+          · exact ⟨a,Finset.mem_union.mpr (Or.inl hm),ht⟩
+          · exact ⟨a,Finset.mem_union.mpr (Or.inr hm),ht⟩
+        · rintro ⟨a,hm,ht⟩
+          rcases Finset.mem_union.mp hm with hm | hm
+          · exact Or.inl ⟨a,hm,ht⟩
+          · exact Or.inr ⟨a,hm,ht⟩
+      · rw [symbolic_atom n C w h]
+        simp
+
+/-- The universe used for internal ORs and AND operands: raw inputs
+and dirty AND wire indices, with no clean AND atoms. -/
+def atomUniverse {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset Nat :=
+  Finset.range n ∪ (PEqualNP.TopForm.junk G C).image (fun j => n+j)
+
+theorem atom_universe_card {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (atomUniverse G C).card = n + (PEqualNP.TopForm.junk G C).card := by
+  have hd : Disjoint (Finset.range n)
+      ((PEqualNP.TopForm.junk G C).image (fun j => n+j)) := by
+    apply Finset.disjoint_left.mpr
+    intro a ha hb
+    obtain ⟨j,_,he⟩ := Finset.mem_image.mp hb
+    have hlt := Finset.mem_range.mp ha
+    omega
+  have hinj : Function.Injective (fun j : Nat => n+j) := by
+    intro a b h
+    omega
+  unfold atomUniverse
+  rw [Finset.card_union_of_disjoint hd, Finset.card_image_of_injective _ hinj,
+    Finset.card_range]
+
+theorem and_operand_support_subset {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) (j : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (w : Nat) (hr : w ∈ (gateAt C j).inputs) :
+    symbolicSupport n C w ⊆ atomUniverse G C := by
+  have hw := hAO.2.1 j hj w hr
+  have hw' : w < n+C.gates.length := by omega
+  intro a ha
+  rcases symbolic_leaf_kind C hAO w hw' a ha with hraw | ⟨i,hi,he,hiop⟩
+  · exact Finset.mem_union.mpr (Or.inl (Finset.mem_range.mpr hraw))
+  · have hmem : n+i ∈ symbolicSupport n C w := he ▸ ha
+    have hjunk := and_operand_atoms_junk G C hAO htop j hj hop w hr i hmem hiop
+    exact Finset.mem_union.mpr (Or.inr (Finset.mem_image.mpr ⟨i,hjunk,he.symm⟩))
+
+theorem and_operand_atom_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) (j : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (w : Nat) (hr : w ∈ (gateAt C j).inputs)
+    (h2 : (PEqualNP.TopForm.junk G C).card = 2) :
+    (symbolicSupport n C w).card ≤ n+2 := by
+  have hc := Finset.card_le_card (and_operand_support_subset G C hAO htop j hj hop w hr)
+  rw [atom_universe_card, h2] at hc
+  exact hc
+
+/-- Every raw/junk atom has some input on which it is true while the
+graph function is false. -/
+theorem atom_dirty_witness {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (a : Nat) (ha : a ∈ atomUniverse G C) :
+    ∃ x : Fin n → Bool, wireVal n C a x = true ∧ graphFun G ∅ x = false := by
+  rcases Finset.mem_union.mp ha with hr | hj
+  · have hlt := Finset.mem_range.mp hr
+    let u : Fin n := ⟨a,hlt⟩
+    have hm : u ∈ effectiveSingletons C a := by
+      have he : effectiveSingletons C a = ({u} : Finset (Fin n)) :=
+        effective_input C u
+      rw [he]
+      exact Finset.mem_singleton.mpr rfl
+    exact ⟨pairInput u u,(Finset.mem_filter.mp hm).2,graph_singleton_false G u⟩
+  · obtain ⟨j,hj,he⟩ := Finset.mem_image.mp hj
+    have hd : IsDirtyAnd n G C j := (Finset.mem_filter.mp hj).2
+    obtain ⟨_,_,x,hx,hf⟩ := hd
+    refine ⟨x,?_,hf⟩
+    rw [← he]
+    exact hx
+
+/-- Every real OR over a raw/junk-only support belongs to orN.
+This covers the relevant ORs inside AND operands without assuming
+that every gate of the circuit has a path to the output. -/
+theorem raw_junk_or_dirty {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.or)
+    (hs : symbolicSupport n C (n+j) ⊆ atomUniverse G C) :
+    j ∈ PEqualNP.TopForm.orN G C := by
+  obtain ⟨a,ha⟩ := symbolic_nonempty n C (n+j)
+  obtain ⟨x,hx,hf⟩ := atom_dirty_witness G C a (hs ha)
+  have ht : gateVal n C j x = true :=
+    (symbolic_eval C hAO x (n+j)).mpr ⟨a,ha,hx⟩
+  have hd : ¬ PEqualNP.TopForm.BelowF G C j := by
+    intro hc
+    have hh := hc x ht
+    rw [hf] at hh
+    contradiction
+  exact Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,hd⟩
+
+end L2260FirstMerge
