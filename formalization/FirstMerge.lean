@@ -5801,3 +5801,212 @@ theorem numbered_support_eval_two_junk {n : Nat} (G : SimpleGraph (Fin n))
     exact ⟨a,ha,(two_junk_atom_value_correct G C i j hJ hc x a (hs ha)).symm.trans ht⟩
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: selectors, active slots and operand supports
+
+v9/v14/v19 use a pool of q raw/junk atoms followed by m OR slots.
+When only r slots are used, the inactive slots form a prefix of length
+m-r. Atom numbering is unchanged; OR source numbers are shifted.
+The following lemmas describe the semantic assignments, not yet the
+integer literal allocation of the Python CNF generator.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def paddedCode (q pad z : Nat) : Nat :=
+  if z < q then z else z+pad
+
+theorem padded_code_strict (q pad a b : Nat) (h : a < b) :
+    paddedCode q pad a < paddedCode q pad b := by
+  unfold paddedCode
+  split <;> split <;> omega
+
+theorem padded_code_injective (q pad : Nat) :
+    Function.Injective (paddedCode q pad) := by
+  intro a b he
+  rcases lt_trichotomy a b with h | h | h
+  · have hh := padded_code_strict q pad a b h
+    omega
+  · exact h
+  · have hh := padded_code_strict q pad b a h
+    omega
+
+theorem padded_code_range (q r m z : Nat) (hr : r ≤ m)
+    (hz : z < q+r) :
+    paddedCode q (m-r) z < q+m ∧
+      (paddedCode q (m-r) z < q ∨
+        q+(m-r) ≤ paddedCode q (m-r) z) := by
+  unfold paddedCode
+  split <;> omega
+
+def activeSlot (m r h : Nat) : Bool := decide (m-r ≤ h ∧ h < m)
+
+theorem active_slot_suffix (m r h t : Nat) (ht : t < m)
+    (hht : h ≤ t) (ha : activeSlot m r h = true) :
+    activeSlot m r t = true := by
+  unfold activeSlot at *
+  simp only [decide_eq_true_eq] at *
+  omega
+
+theorem active_slot_count (m r : Nat) (hr : r ≤ m) :
+    ((Finset.range m).filter fun h => activeSlot m r h = true).card = r := by
+  have he : (Finset.range m).filter (fun h => activeSlot m r h = true) =
+      Finset.Ico (m-r) m := by
+    ext h
+    simp [activeSlot,Finset.mem_Ico] <;> omega
+  rw [he,Nat.card_Ico]
+  omega
+
+/-- The one-hot choice for a real source has exactly one true bit. -/
+def selectorBit (selected z : Nat) : Bool := decide (z = selected)
+
+theorem selector_one_hot (bound selected : Nat) (hs : selected < bound) :
+    (∃ z < bound, selectorBit selected z = true) ∧
+      (∀ a b, selectorBit selected a = true →
+        selectorBit selected b = true → a = b) := by
+  refine ⟨⟨selected,hs,by simp [selectorBit]⟩,?_⟩
+  intro a b ha hb
+  simp only [selectorBit,decide_eq_true_eq] at ha hb
+  exact ha.trans hb.symm
+
+theorem numbered_atom_singleton {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat)
+    (hw : w ∈ atomUniverse G C) :
+    numberedSupport G C w = {sourceCode G C w} := by
+  rcases Finset.mem_union.mp hw with hr | hj
+  · have hlt := Finset.mem_range.mp hr
+    have he := raw_symbolic_singleton C (⟨w,hlt⟩ : Fin n)
+    unfold numberedSupport
+    rw [he]
+    simp
+  · obtain ⟨j,hj,rfl⟩ := Finset.mem_image.mp hj
+    have hop : (gateAt C j).op = GateOp.and := (Finset.mem_filter.mp hj).2.1
+    unfold numberedSupport
+    rw [and_wire_symbolic_singleton C j hop]
+    simp
+
+theorem numbered_support_subset_iff {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (a b : Nat)
+    (ha : symbolicSupport n C a ⊆ atomUniverse G C)
+    (hb : symbolicSupport n C b ⊆ atomUniverse G C) :
+    numberedSupport G C a ⊆ numberedSupport G C b ↔
+      symbolicSupport n C a ⊆ symbolicSupport n C b := by
+  constructor
+  · intro h w hw
+    exact (numbered_support_mem_iff G C b w hb (ha hw)).mp
+      (h (Finset.mem_image.mpr ⟨w,hw,rfl⟩))
+  · intro h z hz
+    obtain ⟨w,hw,rfl⟩ := Finset.mem_image.mp hz
+    exact Finset.mem_image.mpr ⟨w,h hw,rfl⟩
+
+/-- The reverse subset direction also makes a physical gate redundant.
+This is needed for the two difference clauses of v19, not just one. -/
+theorem least_reverse_not_subset {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (j a b : Nat) (hj : j < C.gates.length)
+    (hin : (gateAt C j).inputs = [a,b]) :
+    ¬ symbolicSupport n C b ⊆ symbolicSupport n C a := by
+  intro hs
+  have ha : a < n+j := hmin.1.2.1 j hj a (by rw [hin]; simp)
+  have hb : b < n+j := hmin.1.2.1 j hj b (by rw [hin]; simp)
+  rcases hmin.1.1 _ (actual_gate_mem C j hj) with hand | hor
+  · apply least_no_earlier_equal G C hmin j b hj hb
+    intro x
+    have hv := gateVal_and_eq C hmin.1.2.1 j a b hj hand hin x
+    change gateVal n C j x =
+      (wireVal n C a x && wireVal n C b x) at hv
+    rw [hv]
+    have himp := support_subset_wire_imp C hmin.1 b a hs x
+    cases hbval : wireVal n C b x with
+    | false => simp
+    | true => simp [himp hbval]
+  · apply least_no_earlier_equal G C hmin j a hj ha
+    intro x
+    have hv := gateVal_or_eq C hmin.1.2.1 j a b hj hor hin x
+    change gateVal n C j x =
+      (wireVal n C a x || wireVal n C b x) at hv
+    rw [hv]
+    have himp := support_subset_wire_imp C hmin.1 b a hs x
+    cases hbval : wireVal n C b x with
+    | false => simp
+    | true => simp [himp hbval]
+
+theorem least_numbered_operand_incomparable {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (j a b : Nat) (hj : j < C.gates.length)
+    (hin : (gateAt C j).inputs = [a,b])
+    (ha : symbolicSupport n C a ⊆ atomUniverse G C)
+    (hb : symbolicSupport n C b ⊆ atomUniverse G C) :
+    (∃ z ∈ numberedSupport G C a, z ∉ numberedSupport G C b) ∧
+    (∃ z ∈ numberedSupport G C b, z ∉ numberedSupport G C a) := by
+  classical
+  have h1 : ¬ numberedSupport G C a ⊆ numberedSupport G C b := by
+    intro h
+    have hs := (numbered_support_subset_iff G C a b ha hb).mp h
+    rcases hmin.1.1 _ (actual_gate_mem C j hj) with hand | hor
+    · exact least_and_not_subset G C hmin j a b hj hand hin hs
+    · exact least_or_not_subset G C hmin j a b hj hor hin hs
+  have h2 : ¬ numberedSupport G C b ⊆ numberedSupport G C a := by
+    intro h
+    exact least_reverse_not_subset G C hmin j a b hj hin
+      ((numbered_support_subset_iff G C b a hb ha).mp h)
+  constructor
+  · by_contra hn
+    apply h1
+    intro z hz
+    by_contra hm
+    exact hn ⟨z,hz,hm⟩
+  · by_contra hn
+    apply h2
+    intro z hz
+    by_contra hm
+    exact hn ⟨z,hz,hm⟩
+
+/-- Every retained OR has two distinct earlier selector indices.
+Their order can be chosen increasing without changing the union.
+Here the padded numbering is exactly the layout used by v9/v14. -/
+theorem padded_or_selector_pair {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (j m : Nat) (hj : j ∈ internalOrGates G C)
+    (hm : (internalOrGates G C).card ≤ m) :
+    ∃ a b : Nat,
+      ((gateAt C j).inputs = [a,b] ∨ (gateAt C j).inputs = [b,a]) ∧
+      a ∈ internalSource G C ∧ b ∈ internalSource G C ∧
+      paddedCode (n+(PEqualNP.TopForm.junk G C).card)
+        (m-(internalOrGates G C).card) (sourceCode G C a) <
+      paddedCode (n+(PEqualNP.TopForm.junk G C).card)
+        (m-(internalOrGates G C).card) (sourceCode G C b) ∧
+      paddedCode (n+(PEqualNP.TopForm.junk G C).card)
+        (m-(internalOrGates G C).card) (sourceCode G C b) <
+      paddedCode (n+(PEqualNP.TopForm.junk G C).card)
+        (m-(internalOrGates G C).card) (sourceCode G C (n+j)) ∧
+      numberedSupport G C (n+j) =
+        numberedSupport G C a ∪ numberedSupport G C b := by
+  obtain ⟨a,b,hin,ha,hb,haS,hbS,hu⟩ := internal_or_children G C hmin.1 j hj
+  have hjlt := (internal_or_mem G C j hj).1
+  have hne : a ≠ b := by
+    intro he
+    have h := least_distinct_operands G C hmin j hjlt
+    apply h
+    simp [PEqualNP.TopForm.opnd,hin,he]
+  have hcodes : sourceCode G C a ≠ sourceCode G C b := by
+    intro he
+    exact hne (source_code_injective G C a b haS hbS he)
+  have ha' := source_code_before_or G C a j haS hj ha
+  have hb' := source_code_before_or G C b j hbS hj hb
+  have hU := numbered_support_union G C j a b hu
+  rcases lt_or_gt_of_ne hcodes with h | h
+  · exact ⟨a,b,Or.inl hin,haS,hbS,padded_code_strict _ _ _ _ h,
+      padded_code_strict _ _ _ _ hb',hU⟩
+  · refine ⟨b,a,Or.inr hin,hbS,haS,padded_code_strict _ _ _ _ h,
+      padded_code_strict _ _ _ _ ha',?_⟩
+    rw [hU,Finset.union_comm]
+
+end L2260FirstMerge
