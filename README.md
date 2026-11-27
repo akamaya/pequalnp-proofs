@@ -579,3 +579,13 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_pa
 ```
 
 Lean形式化とUNSAT証明書検証は未完。6時間内の提出はまだ実証されていない。main変更なし。
+
+### FirstMerge indexed bridge
+
+WSLで06bedb1時点のFirstMerge.lean（公式Circuit.wires/IsLeastAOへのbridge）が終了コード0、LEAN CIRCUIT BRIDGE CHECK OK。非推奨構文とlinterのwarningのみ。続けてfold_length、fold_preserves_getD、prefix_wire、finalSample_gate、graph_edge_first_merge_indexedを追加。ReadsBackにより実際のoperand wireが先行prefixの範囲内にあることを示し、最終wire値を使うゲート番号付きfirst-merge条件へ接続する。新規部分は未コンパイル。既存の検証済み部分は変更なし。まだL_meta_2260全体の証明ではない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN INDEXED FIRST MERGE CHECK OK"
+```
+
+SAT固定分割ベンチマーク実行中につきSATコードとcheckpointは変更しない。main変更なし。
