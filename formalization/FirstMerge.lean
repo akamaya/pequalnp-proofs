@@ -6160,3 +6160,196 @@ theorem top_false_on_boundary {n : Nat} (G : SimpleGraph (Fin n))
     contradiction
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: official OR reachability
+
+The posted h4, h5 and Lambda use orIn / OrReaches. The SAT supports
+use recursive OR expansion. Establish their correspondence using
+the actual fold definition of the official OR closure.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+private theorem or_fold_length (n : Nat) (gs : List Gate) (cs : List (List Nat)) :
+    (gs.foldl (orStep n) cs).length = cs.length + gs.length := by
+  induction gs generalizing cs with
+  | nil => simp
+  | cons g gs ih =>
+      change (gs.foldl (orStep n) (orStep n cs g)).length = _
+      rw [ih]
+      simp [orStep] <;> omega
+
+private theorem or_fold_preserves (n : Nat) (gs : List Gate) (cs : List (List Nat))
+    (i : Nat) (hi : i < cs.length) :
+    (gs.foldl (orStep n) cs).getD i [] = cs.getD i [] := by
+  induction gs generalizing cs with
+  | nil => rfl
+  | cons g gs ih =>
+      change (gs.foldl (orStep n) (orStep n cs g)).getD i [] = _
+      have hi' : i < (orStep n cs g).length := by
+        simp [orStep] <;> omega
+      rw [ih _ hi']
+      unfold orStep
+      rw [generic_getD_snoc]
+      simp [Nat.ne_of_lt hi]
+
+theorem or_reaches_step {n : Nat} (C : Circuit) (j g : Nat)
+    (hj : j < C.gates.length) :
+    OrReaches n C (n+j) g ↔
+      g = j ∨ ((gateAt C j).op = GateOp.or ∧
+        ∃ k < j, n+k ∈ (gateAt C j).inputs ∧ OrReaches n C (n+k) g) := by
+  obtain ⟨pre,a,post,he,hpre⟩ := split_at_index C.gates j hj
+  have hat : gateAt C j = a := by
+    unfold gateAt
+    rw [he,← hpre]
+    exact split_getD pre post a _
+  let cs := pre.foldl (orStep n) []
+  have hlen : cs.length = j := by
+    dsimp [cs]
+    rw [or_fold_length,hpre]
+    simp
+  have hjcs : j < (orStep n cs a).length := by simp [orStep,hlen]
+  have hpast (k : Nat) (hk : k < j) :
+      (orSets n C).getD k [] = cs.getD k [] := by
+    unfold orSets
+    rw [he,List.foldl_append]
+    change ((a :: post).foldl (orStep n) cs).getD k [] = _
+    exact or_fold_preserves n (a :: post) cs k (by omega)
+  have hrow : (orSets n C).getD j [] =
+      j :: (if a.op = GateOp.or then
+        (a.inputs.filter fun w => decide (n ≤ w ∧ w < n+j)).flatMap
+          (fun w => cs.getD (w-n) [])
+        else []) := by
+    unfold orSets
+    rw [he,List.foldl_append]
+    change (post.foldl (orStep n) (orStep n cs a)).getD j [] = _
+    rw [or_fold_preserves n post _ j hjcs]
+    unfold orStep
+    rw [generic_getD_snoc,hlen,if_pos rfl]
+  unfold OrReaches
+  rw [show n+j-n = j by omega,hrow,hat]
+  simp only [show n ≤ n+j by omega,true_and,List.mem_cons]
+  by_cases hop : a.op = GateOp.or
+  · rw [if_pos hop]
+    constructor
+    · rintro (h | h)
+      · exact Or.inl h
+      · obtain ⟨w,hw,hg⟩ := List.mem_flatMap.mp h
+        have hmem := List.mem_filter.mp hw
+        have hb : n ≤ w ∧ w < n+j := by
+          simpa only [decide_eq_true_eq] using hmem.2
+        let k := w-n
+        have hk : k < j := by dsimp [k]; omega
+        have hwk : n+k = w := by dsimp [k]; omega
+        refine Or.inr ⟨hop,k,hk,?_,?_⟩
+        · rw [hwk]
+          exact hmem.1
+        · refine ⟨by omega,?_⟩
+          rw [show n+k-n = k by omega,hpast k hk]
+          exact hg
+    · rintro (h | ⟨_,k,hk,hr,_,hg⟩)
+      · exact Or.inl h
+      · apply Or.inr
+        apply List.mem_flatMap.mpr
+        refine ⟨n+k,?_,?_⟩
+        · apply List.mem_filter.mpr
+          exact ⟨hr,by simp only [decide_eq_true_eq]; omega⟩
+        · rw [show n+k-n = k by omega] at hg ⊢
+          rw [hpast k hk] at hg
+          exact hg
+  · simp [hop]
+
+theorem or_reaches_real {n : Nat} (C : Circuit) (w g : Nat)
+    (hw : w < n+C.gates.length) (h : OrReaches n C w g) :
+    g < C.gates.length ∧ n+g ≤ w := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      have hn := h.1
+      let j := w-n
+      have he : w = n+j := by dsimp [j]; omega
+      have hj : j < C.gates.length := by omega
+      rw [he] at h
+      rcases (or_reaches_step C j g hj).mp h with hs | ⟨_,k,hk,_,hr⟩
+      · omega
+      · have hb := ih (n+k) (by omega) (by omega) hr
+        omega
+
+theorem or_reaches_and_atom {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (w g : Nat)
+    (hw : w < n+C.gates.length)
+    (hg : (gateAt C g).op = GateOp.and) :
+    OrReaches n C w g ↔ n+g ∈ symbolicSupport n C w := by
+  induction w using Nat.strongRecOn with
+  | ind w ih =>
+      by_cases hex : Expandable n C w
+      · obtain ⟨hn,_,hop,ha,hb⟩ := hex
+        let j := w-n
+        have hj : j < C.gates.length := by dsimp [j]; omega
+        have he : w = n+j := by dsimp [j]; omega
+        have hne : g ≠ j := by
+          intro h
+          subst g
+          change (gateAt C j).op = GateOp.or at hop
+          rw [hg] at hop
+          contradiction
+        have hin := (actual_opnds C hAO j hj).1
+        have hu := symbolic_expand n C w ⟨hn,hw,hop,ha,hb⟩
+        constructor
+        · intro hr
+          have hr' : OrReaches n C (n+j) g := he ▸ hr
+          rcases (or_reaches_step C j g hj).mp hr' with h | ⟨_,k,hk,hread,hrk⟩
+          · exact False.elim (hne h)
+          · have hmem := (ih (n+k) (by omega) (by omega)).mp hrk
+            rw [hu]
+            rw [hin] at hread
+            have hh : n+k = PEqualNP.TopForm.opnd C j 0 ∨
+                n+k = PEqualNP.TopForm.opnd C j 1 := by simpa using hread
+            rcases hh with hh | hh
+            · exact Finset.mem_union.mpr (Or.inl (hh ▸ hmem))
+            · exact Finset.mem_union.mpr (Or.inr (hh ▸ hmem))
+        · intro hm
+          rw [hu] at hm
+          have descend (a : Nat) (hal : a < w)
+              (har : a ∈ (gateAt C j).inputs)
+              (ham : n+g ∈ symbolicSupport n C a) : OrReaches n C w g := by
+            have hr := (ih a hal (hal.trans hw)).mpr ham
+            have hn' := hr.1
+            let k := a-n
+            have hak : a = n+k := by dsimp [k]; omega
+            have hk : k < j := by omega
+            rw [he]
+            apply (or_reaches_step C j g hj).mpr
+            exact Or.inr ⟨hop,k,hk,hak ▸ har,hak ▸ hr⟩
+          rcases Finset.mem_union.mp hm with hm | hm
+          · exact descend _ ha (by rw [hin]; simp) hm
+          · exact descend _ hb (by rw [hin]; simp) hm
+      · rw [symbolic_atom n C w hex]
+        constructor
+        · intro hr
+          have hn := hr.1
+          let j := w-n
+          have he : w = n+j := by dsimp [j]; omega
+          have hj : j < C.gates.length := by omega
+          have hno : (gateAt C j).op ≠ GateOp.or := by
+            intro ho
+            apply hex
+            rw [he]
+            exact real_or_expandable C hAO j hj ho
+          have hr' : OrReaches n C (n+j) g := he ▸ hr
+          rcases (or_reaches_step C j g hj).mp hr' with hs | ⟨ho,_⟩
+          · exact Finset.mem_singleton.mpr (by omega)
+          · exact False.elim (hno ho)
+        · intro hm
+          have he := Finset.mem_singleton.mp hm
+          have hj : g < C.gates.length := by omega
+          rw [← he]
+          exact (or_reaches_step C g g hj).mpr (Or.inl rfl)
+
+end L2260FirstMerge
