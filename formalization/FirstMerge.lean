@@ -2438,3 +2438,52 @@ theorem auxiliary_local_budget {n : Nat} (G : SimpleGraph (Fin n))
             exact False.elim (hnot h)
 
 end L2260FirstMerge
+
+/-! ## Extract the budget of an individual component -/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+attribute [local instance] gateOpDecEq
+
+def atomClass (U : Finset Nat) (l : Nat → Nat) (c : Nat) : Finset Nat :=
+  U.filter fun a => l a = c
+
+theorem atom_class_closed (U : Finset Nat) (l : Nat → Nat) (c : Nat) :
+    ClassClosed U (atomClass U l c) l := by
+  intro x hx y hy he
+  have hx' : l x = c := (Finset.mem_filter.mp hx).2
+  exact Finset.mem_filter.mpr ⟨hy,he.symm.trans hx'⟩
+
+theorem atom_class_rank_le_one (U : Finset Nat) (l : Nat → Nat) (c : Nat) :
+    atomRank (atomClass U l c) l ≤ 1 := by
+  have hs : (atomClass U l c).image l ⊆ ({c} : Finset Nat) := by
+    intro z hz
+    obtain ⟨x,hx,he⟩ := Finset.mem_image.mp hz
+    exact Finset.mem_singleton.mpr (he.symm.trans (Finset.mem_filter.mp hx).2)
+  exact (Finset.card_le_card hs).trans (by simp)
+
+theorem component_local_cost_bound {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat) (l : Nat → Nat)
+    (hb : LocalBudget G C j l) (c : Nat) :
+    (atomClass (atomUniverse G C) l c).card ≤
+      1 + localAuxCost G C (atomClass (atomUniverse G C) l c) j := by
+  have h := hb (atomClass (atomUniverse G C) l c)
+    (Finset.filter_subset _ _) (atom_class_closed _ _ _)
+  have hr := atom_class_rank_le_one (atomUniverse G C) l c
+  omega
+
+/-- One common labeling satisfies all actual wire support constraints
+and all individual component budgets. -/
+theorem circuit_component_budgets {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) :
+    ∃ l : Nat → Nat, AuxInvariant G C C.gates.length l ∧
+      ∀ c : Nat, (atomClass (atomUniverse G C) l c).card ≤
+        1 + localAuxCost G C (atomClass (atomUniverse G C) l c) C.gates.length := by
+  obtain ⟨l,hi,hb⟩ := auxiliary_local_budget G C hAO htop C.gates.length (Nat.le_refl _)
+  exact ⟨l,hi,fun c => component_local_cost_bound G C _ l hb c⟩
+
+end L2260FirstMerge
