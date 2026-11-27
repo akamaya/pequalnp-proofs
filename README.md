@@ -631,3 +631,11 @@ WSL commit 982f4fe: LEAN CLEAN EFFECTIVE STAR CHECK OK (exit 0; deprecated synta
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN COMPONENT MERGE CHECK OK"
 ```
+
+### Whole-circuit component labels
+
+WSL commit a300eeb: LEAN COMPONENT MERGE CHECK OK (exit 0; warnings only). Added dirtyOrPrefix, prefix_component_labels and circuit_component_labels. Induction over actual gate indices gives a label map on original vertices, local for every existing wire's effective singleton set, with n <= labelCount + |orN|. AND uses intersection without a merge, clean OR has empty singleton support, dirty OR uses at most one class merge. This is the original-vertex locality/count bound, not yet the full auxiliary-atom graph construction or its tight-rank consequences. New section not compiled yet; SAT source and checkpoints unchanged.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN CIRCUIT COMPONENT CHECK OK"
+```
