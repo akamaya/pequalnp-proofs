@@ -936,6 +936,8 @@ open PEqualNP.CircuitLowerBounds
 open PEqualNP.EdgeOwnership
 open PEqualNP.MetaComplexity.NestedCover
 
+attribute [local instance] gateOpDecEq
+
 def dirtyOrPrefix {n : Nat} (G : SimpleGraph (Fin n))
     [DecidableRel G.Adj] (C : Circuit) (j : Nat) : Nat :=
   ((Finset.range j).filter fun i =>
@@ -949,8 +951,8 @@ private theorem dirtyOrPrefix_succ {n : Nat} (G : SimpleGraph (Fin n))
           then 1 else 0) := by
   classical
   by_cases h : (gateAt C j).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C j
-  · simp [dirtyOrPrefix, Finset.range_succ, h]
-  · simp [dirtyOrPrefix, Finset.range_succ, h]
+  · simp [dirtyOrPrefix, Finset.range_add_one, h]
+  · simp [dirtyOrPrefix, Finset.range_add_one, h]
 
 /-- At every gate prefix, all effective singleton supports can be
 made local, using at most one class merge per dirty OR. -/
@@ -1038,6 +1040,7 @@ theorem circuit_component_labels {n : Nat} (G : SimpleGraph (Fin n))
     ∃ label : Fin n → Fin n,
       (∀ w < n+C.gates.length, SupportLocal label (effectiveSingletons C w)) ∧
       n ≤ labelCount label + (PEqualNP.TopForm.orN G C).card := by
-  exact prefix_component_labels G C hAO C.gates.length (Nat.le_refl _)
+  have h := prefix_component_labels G C hAO C.gates.length (Nat.le_refl _)
+  simpa only [dirtyOrPrefix, PEqualNP.TopForm.orN, PEqualNP.TopForm.gatesWhere] using h
 
 end L2260FirstMerge
