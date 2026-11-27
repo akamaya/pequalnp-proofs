@@ -8022,7 +8022,8 @@ theorem mem_group_centers_iff {γ α : Type} [DecidableEq γ] [DecidableEq α]
     obtain ⟨p,hp,he⟩ := Finset.mem_image.mp h
     have hm := Finset.mem_filter.mp hp
     have hp' : p = (g,a) := Prod.ext hm.2 he
-    rwa [← hp']
+    rw [← hp']
+    exact hm.1
   · intro h
     exact Finset.mem_image.mpr ⟨(g,a),Finset.mem_filter.mpr ⟨h,rfl⟩,rfl⟩
 
@@ -8109,6 +8110,7 @@ theorem cover_threshold_count {γ α : Type} [DecidableEq γ] [DecidableEq α]
     intro a ha b hb he
     have ha' := hp a (Finset.mem_filter.mp ha).1
     have hb' := hp b (Finset.mem_filter.mp hb).1
+    change a-1 = b-1 at he
     omega
   have h := Finset.card_le_card hs
   rw [he,Finset.card_range] at h
