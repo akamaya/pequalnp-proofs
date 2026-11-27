@@ -1,9 +1,10 @@
 import Mathlib
+import PEqualNP.Defs.TopForm
 
 /-!
-Standalone first-merge lemmas for the graph-circuit reduction.
-This is a draft to compile in the project's Lean environment.
-It does not yet connect the abstract trace to Circuit/gateVal.
+First-merge lemmas for the graph-circuit reduction.
+The abstract lemmas passed the WSL Lean check. The new official
+Circuit.wires/IsLeastAO bridge below requires a separate compile check.
 -/
 
 namespace L2260FirstMerge
@@ -143,5 +144,192 @@ theorem tight_components (n r t b z : ℕ)
     (hfree : z + t ≤ 2)
     (htight : n = b + r) : z + t = 2 := by
   omega
+
+end L2260FirstMerge
+
+/-! ## Bridge to the official circuit evaluator
+
+This section uses the actual Circuit.wires fold, not an assumed trace.
+The witness records the precise gate prefix at which its operands are
+evaluated. Even missing wires are handled, with the official false default.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+def wireSample (wu wv wp : List Bool) (i : Nat) : Sample :=
+  ⟨wu.getD i false, wv.getD i false, wp.getD i false⟩
+
+def WireSafe (wu wv wp : List Bool) : Prop :=
+  ∀ i, ¬ PairOnly (wireSample wu wv wp i)
+
+/-- The exact step used by the official Circuit.wires evaluator. -/
+def gateStep (w : List Bool) (g : Gate) : List Bool :=
+  w ++ [g.op.eval (g.inputs.map fun i => w.getD i false)]
+
+def CrossAt (g : Gate) (wu wv wp : List Bool) : Prop :=
+  g.op = GateOp.and ∧
+    ∃ a b, g.inputs = [a,b] ∧
+      Opposite (wireSample wu wv wp a) (wireSample wu wv wp b)
+
+/-- A concrete gate with its actual preceding gate list. -/
+def CircuitCross (gs : List Gate) (wu wv wp : List Bool) : Prop :=
+  ∃ pre g post, gs = pre ++ g :: post ∧
+    CrossAt g (pre.foldl gateStep wu) (pre.foldl gateStep wv)
+      (pre.foldl gateStep wp)
+
+private theorem getD_snoc (xs : List Bool) (x : Bool) (i : Nat) :
+    (xs ++ [x]).getD i false =
+      if i = xs.length then x else xs.getD i false := by
+  induction xs generalizing i with
+  | nil =>
+      cases i <;> simp
+  | cons a xs ih =>
+      cases i with
+      | zero => simp
+      | succ i =>
+          simpa only [List.cons_append, List.getD_cons_succ,
+            List.length_cons, Nat.succ.injEq] using ih i
+
+private theorem append_safe (wu wv wp : List Bool) (x : Sample)
+    (hv : wu.length = wv.length) (hp : wu.length = wp.length)
+    (hs : WireSafe wu wv wp) (hx : ¬ PairOnly x) :
+    WireSafe (wu ++ [x.u]) (wv ++ [x.v]) (wp ++ [x.uv]) := by
+  intro i
+  by_cases hi : i = wu.length
+  · have he : wireSample (wu ++ [x.u]) (wv ++ [x.v]) (wp ++ [x.uv]) i = x := by
+      cases x
+      simp [wireSample, getD_snoc, ← hv, ← hp, hi]
+    rw [he]
+    exact hx
+  · simpa [wireSample, getD_snoc, ← hv, ← hp, hi] using hs i
+
+private theorem two_inputs (l : List Nat) (h : l.length = 2) :
+    ∃ a b, l = [a,b] := by
+  cases l with
+  | nil => simp at h
+  | cons a l =>
+      cases l with
+      | nil => simp at h
+      | cons b l =>
+          cases l with
+          | nil => exact ⟨a,b,rfl⟩
+          | cons c l => simp at h
+
+private theorem gate_safe (g : Gate) (wu wv wp : List Bool)
+    (hop : g.op = GateOp.and ∨ g.op = GateOp.or)
+    (hlen : g.inputs.length = 2)
+    (hv : wu.length = wv.length) (hp : wu.length = wp.length)
+    (hs : WireSafe wu wv wp) (hc : ¬ CrossAt g wu wv wp) :
+    WireSafe (gateStep wu g) (gateStep wv g) (gateStep wp g) := by
+  rcases g with ⟨op, ins⟩
+  change ins.length = 2 at hlen
+  obtain ⟨a,b,rfl⟩ := two_inputs ins hlen
+  change op = GateOp.and ∨ op = GateOp.or at hop
+  rcases hop with rfl | rfl
+  · have hx : ¬ PairOnly (andSample (wireSample wu wv wp a) (wireSample wu wv wp b)) := by
+      intro hm
+      exact hc ⟨rfl, a, b, rfl, and_first _ _ (hs a) (hs b) hm⟩
+    simpa [gateStep, GateOp.eval, wireSample, andSample] using
+      append_safe wu wv wp _ hv hp hs hx
+  · have hx : ¬ PairOnly (orSample (wireSample wu wv wp a) (wireSample wu wv wp b)) := by
+      intro hm
+      rcases or_pair _ _ hm with ha | hb
+      · exact hs a ha
+      · exact hs b hb
+    simpa [gateStep, GateOp.eval, wireSample, orSample] using
+      append_safe wu wv wp _ hv hp hs hx
+
+/-- Induction on the official gate list: either all final wires remain
+safe, or a concrete earlier AND has opposite singleton operands. -/
+theorem fold_safe_or_cross (gs : List Gate) (wu wv wp : List Bool)
+    (hm : ∀ g ∈ gs, (g.op = GateOp.and ∨ g.op = GateOp.or) ∧ g.inputs.length = 2)
+    (hv : wu.length = wv.length) (hp : wu.length = wp.length)
+    (hs : WireSafe wu wv wp) :
+    WireSafe (gs.foldl gateStep wu) (gs.foldl gateStep wv) (gs.foldl gateStep wp) ∨
+      CircuitCross gs wu wv wp := by
+  classical
+  induction gs generalizing wu wv wp with
+  | nil => exact Or.inl hs
+  | cons g gs ih =>
+      by_cases hc : CrossAt g wu wv wp
+      · exact Or.inr ⟨[],g,gs,rfl,hc⟩
+      · have hg := hm g (by simp)
+        have hs' := gate_safe g wu wv wp hg.1 hg.2 hv hp hs hc
+        have hv' : (gateStep wu g).length = (gateStep wv g).length := by
+          simp [gateStep, hv]
+        have hp' : (gateStep wu g).length = (gateStep wp g).length := by
+          simp [gateStep, hp]
+        have hm' : ∀ h ∈ gs, (h.op = GateOp.and ∨ h.op = GateOp.or) ∧ h.inputs.length = 2 :=
+          fun h hh => hm h (List.mem_cons.mpr (Or.inr hh))
+        rcases ih (gateStep wu g) (gateStep wv g) (gateStep wp g) hm' hv' hp' hs' with hf | hc'
+        · exact Or.inl hf
+        · obtain ⟨pre,h,post,he,hcross⟩ := hc'
+          refine Or.inr ⟨g :: pre,h,post,?_,?_⟩
+          · simp [he]
+          · exact hcross
+
+/-- Actual Circuit.eval bridge. No normalization hypothesis is needed,
+only the binary AND/OR model and the three input evaluations. -/
+theorem circuit_first_merge (C : Circuit) (xu xv xp : List Bool)
+    (hm : ∀ g ∈ C.gates, (g.op = GateOp.and ∨ g.op = GateOp.or) ∧ g.inputs.length = 2)
+    (hv : xu.length = xv.length) (hp : xu.length = xp.length)
+    (hs : WireSafe xu xv xp)
+    (ht : PairOnly ⟨C.eval xu, C.eval xv, C.eval xp⟩) :
+    CircuitCross C.gates xu xv xp := by
+  rcases fold_safe_or_cross C.gates xu xv xp hm hv hp hs with hf | hc
+  · exact False.elim (hf C.output ht)
+  · exact hc
+
+private theorem pair_inputs_safe {n : Nat} (u v : Fin n) :
+    WireSafe (List.ofFn (pairInput u u)) (List.ofFn (pairInput v v))
+      (List.ofFn (pairInput u v)) := by
+  intro i
+  by_cases hi : i < n
+  · simp [wireSample, PairOnly, List.getD_eq_getElem?_getD,
+      List.getElem?_ofFn, hi, pairInput] <;> aesop
+  · simp [wireSample, PairOnly, List.getD_eq_getElem?_getD,
+      List.getElem?_ofFn, hi]
+
+private theorem graph_singleton_false {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (u : Fin n) :
+    graphFun G ∅ (pairInput u u) = false := by
+  have hn : ¬ ∃ a b, G.Adj a b ∧ pairInput u u a = true ∧ pairInput u u b = true := by
+    rintro ⟨a,b,hab,ha,hb⟩
+    have ha' : a = u := by simpa [pairInput] using ha
+    have hb' : b = u := by simpa [pairInput] using hb
+    subst a
+    subst b
+    exact (G.ne_of_adj hab) rfl
+  simp [graphFun, hn]
+
+private theorem graph_pair_true {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (u v : Fin n) (he : G.Adj u v) :
+    graphFun G ∅ (pairInput u v) = true := by
+  have h : ∃ a b, G.Adj a b ∧ pairInput u v a = true ∧ pairInput u v b = true :=
+    ⟨u,v,he,by simp [pairInput],by simp [pairInput]⟩
+  simp [graphFun, h]
+
+/-- Direct connection to the official IsLeastAO hypothesis and edge
+function. The existential witness is an actual gate of C, not an
+arbitrary Boolean function or an abstract trace step. -/
+theorem graph_edge_first_merge {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (u v : Fin n) (he : G.Adj u v) :
+    CircuitCross C.gates (List.ofFn (pairInput u u)) (List.ofFn (pairInput v v))
+      (List.ofFn (pairInput u v)) := by
+  have hm : ∀ g ∈ C.gates, (g.op = GateOp.and ∨ g.op = GateOp.or) ∧ g.inputs.length = 2 :=
+    fun g hg => ⟨hmin.1.1 g hg, hmin.1.2.2 g hg⟩
+  have hf (x : Fin n → Bool) : C.eval (List.ofFn x) = graphFun G ∅ x :=
+    congrFun hmin.2.1 x
+  apply circuit_first_merge C _ _ _ hm (by simp) (by simp) (pair_inputs_safe u v)
+  change C.eval (List.ofFn (pairInput u v)) = true ∧
+    C.eval (List.ofFn (pairInput u u)) = false ∧ C.eval (List.ofFn (pairInput v v)) = false
+  exact ⟨(hf _).trans (graph_pair_true G u v he),
+    (hf _).trans (graph_singleton_false G u),
+    (hf _).trans (graph_singleton_false G v)⟩
 
 end L2260FirstMerge
