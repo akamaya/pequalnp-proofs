@@ -363,7 +363,7 @@ theorem fold_preserves_getD (gs : List Gate) (w : List Bool) (i : Nat)
   | cons g gs ih =>
       change (gs.foldl gateStep (gateStep w g)).getD i false = w.getD i false
       have hi' : i < (gateStep w g).length := by
-        simp [gateStep]
+        simp only [gateStep, List.length_append, List.length_cons, List.length_nil]
         omega
       rw [ih (gateStep w g) hi']
       unfold gateStep
