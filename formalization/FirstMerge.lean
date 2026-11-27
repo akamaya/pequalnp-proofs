@@ -6534,3 +6534,212 @@ theorem top_raw_cross_adj {n : Nat} (G : SimpleGraph (Fin n))
     (or_in_subset_effective C hAO _ (by omega) hv)
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: exact size and h5/h6 arithmetic
+
+The lower bound on clean OR count becomes equality by rebuilding the
+terminal OR network over all tops. h5 and h6 are posted hypotheses;
+these lemmas translate them rather than add new assumptions.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem clean_output_or_exact {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (u v : Fin n) (he : G.Adj u v)
+    : (PEqualNP.TopForm.orT G C).card + 1 =
+      (PEqualNP.TopForm.tops G C).card := by
+  classical
+  let O := PEqualNP.TopForm.orT G C
+  let S := Finset.range C.gates.length \ O
+  let R := PEqualNP.TopForm.tops G C
+  have hO : O ⊆ Finset.range C.gates.length :=
+    fun j hj => (Finset.mem_filter.mp hj).1
+  have hS : S ⊆ Finset.range C.gates.length :=
+    fun j hj => (Finset.mem_sdiff.mp hj).1
+  have hclosed : ∀ j ∈ S, ∀ w ∈ (gateAt C j).inputs, retainedWire n S w := by
+    intro j hj w hw
+    have hjlt := Finset.mem_range.mp (hS hj)
+    have hjn := (Finset.mem_sdiff.mp hj).2
+    have hwlt := hmin.1.2.1 j hjlt w hw
+    by_cases hraw : w < n
+    · exact Or.inl hraw
+    · have hidx : n+(w-n) = w := by omega
+      apply Or.inr
+      apply Finset.mem_sdiff.mpr
+      refine ⟨Finset.mem_range.mpr (by omega),?_⟩
+      intro ho
+      have hh := nonclean_or_no_clean_or_input G C hmin htop j hjlt hjn
+        (w-n) ho
+      apply hh
+      rw [hidx]
+      exact hw
+  obtain ⟨D,hD,hlen,hval⟩ := extract_closed_subcircuit C hmin.1 S hS hclosed
+  have hkeep : ∀ j ∈ R, j ∈ S := by
+    intro j hj
+    have hm := Finset.mem_filter.mp hj
+    apply Finset.mem_sdiff.mpr
+    refine ⟨hm.1,?_⟩
+    intro ho
+    have hop := (Finset.mem_filter.mp ho).2.1
+    rw [hm.2.1] at hop
+    contradiction
+  have hsem (x : Fin n → Bool) := graph_eq_or_of_tops G C hmin u v he x
+  obtain ⟨a,ha,_⟩ := (hsem (pairInput u v)).mp (graph_pair_true G u v he)
+  let f := fun j : Nat => retainedIndex n S (n+j)
+  let T := R.image f
+  have hne : T.Nonempty := ⟨f a,Finset.mem_image.mpr ⟨a,ha,rfl⟩⟩
+  have hbound : ∀ w ∈ T, w < n+D.gates.length := by
+    intro w hw
+    obtain ⟨j,hj,rfl⟩ := Finset.mem_image.mp hw
+    change retainedIndex n S (n+j) < n+D.gates.length
+    rw [retained_index_gate,hlen]
+    have hh := index_rank_lt_card S j (hkeep j hj)
+    omega
+  obtain ⟨E,hEAO,hElen,hE⟩ := rebuild_or_of_wires T D hD hne hbound
+  have hv : ∀ j ∈ R, ∀ x : Fin n → Bool,
+      wireVal n D (f j) x = gateVal n C j x := by
+    intro j hj x
+    have hjlt := Finset.mem_range.mp (hS (hkeep j hj))
+    have hr : retainedWire n S (n+j) := by
+      apply Or.inr
+      rw [show n+j-n = j by omega]
+      exact hkeep j hj
+    exact hval (n+j) (by omega) hr x
+  have hfun : PEqualNP.MetaComplexity.circuitFun n E = graphFun G ∅ := by
+    funext x
+    change E.eval (List.ofFn x) = graphFun G ∅ x
+    have hiff : E.eval (List.ofFn x) = true ↔ graphFun G ∅ x = true := by
+      rw [hE x,hsem x]
+      constructor
+      · rintro ⟨w,hw,ht⟩
+        obtain ⟨j,hj,rfl⟩ := Finset.mem_image.mp hw
+        exact ⟨j,hj,(hv j hj x).symm.trans ht⟩
+      · rintro ⟨j,hj,ht⟩
+        exact ⟨f j,Finset.mem_image.mpr ⟨j,hj,rfl⟩,(hv j hj x).trans ht⟩
+    cases ha : E.eval (List.ofFn x) <;> cases hb : graphFun G ∅ x <;>
+      simp_all
+  have hbudget := clean_output_or_budget G C hmin htop u v he
+  have hTcard : T.card ≤ R.card := Finset.card_image_le
+  have hTpos : 0 < T.card := Finset.card_pos.mpr hne
+  have hdis : Disjoint S O := by
+    apply Finset.disjoint_left.mpr
+    intro j hj ho
+    exact (Finset.mem_sdiff.mp hj).2 ho
+  have hunion : S ∪ O = Finset.range C.gates.length := by
+    ext j
+    constructor
+    · intro hj
+      rcases Finset.mem_union.mp hj with hs | ho
+      · exact hS hs
+      · exact hO ho
+    · intro hj
+      by_cases ho : j ∈ O
+      · exact Finset.mem_union.mpr (Or.inr ho)
+      · exact Finset.mem_union.mpr (Or.inl (Finset.mem_sdiff.mpr ⟨hj,ho⟩))
+  have hcount := Finset.card_union_of_disjoint hdis
+  rw [hunion,Finset.card_range] at hcount
+  have hleast := hmin.2.2 E hEAO hfun
+  change C.gates.length ≤ E.gates.length at hleast
+  change (PEqualNP.TopForm.tops G C).card ≤ 1+O.card at hbudget
+  rw [hElen,hlen] at hleast
+  change T.card ≤ (PEqualNP.TopForm.tops G C).card at hTcard
+  change O.card + 1 = (PEqualNP.TopForm.tops G C).card
+  omega
+
+
+theorem sat_gate_count_exact {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) (u v : Fin n) (he : G.Adj u v)
+    (hJ : (PEqualNP.TopForm.junk G C).card = 2) :
+    C.size = 2*(PEqualNP.TopForm.tops G C).card+1+
+      (internalOrGates G C).card := by
+  have hcount := ao_gate_count G C hmin.1
+  have hb := clean_output_or_exact G C hmin htop u v he
+  rw [hJ] at hcount
+  rw [internal_or_eq_orN G C hmin htop]
+  change C.gates.length = _
+  omega
+
+/-- Translate the official routed-edge witness to the support bits
+n and n+1 and the corresponding junk values on the edge row. -/
+theorem h5_numbered_route {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (i j : Nat) (hJ : PEqualNP.TopForm.junk G C = {i,j})
+    (hc : InCone n C i j) (u v : Fin n)
+    (a : Nat) (ha : a ∈ PEqualNP.TopForm.tops G C)
+    (b : Fin 2) (g : Nat) (hg : g = i ∨ g = j)
+    (ht : gateVal n C a (pairInput u v) = true)
+    (hr : OrReaches n C (PEqualNP.TopForm.opnd C a b) g)
+    (hv : gateVal n C g (pairInput u v) = true) :
+    gateVal n C a (pairInput u v) = true ∧
+      ∃ z ∈ numberedSupport G C (PEqualNP.TopForm.opnd C a b),
+        (z = n ∨ z = n+1) ∧ twoJunkAtomValue n C i j (pairInput u v) z = true := by
+  classical
+  have ham := Finset.mem_filter.mp ha
+  have halt := Finset.mem_range.mp ham.1
+  obtain ⟨hin,h0,h1⟩ := actual_opnds C hAO a halt
+  have hb : PEqualNP.TopForm.opnd C a b ∈ (gateAt C a).inputs := by
+    fin_cases b <;> rw [hin] <;> simp
+  have hw := hAO.2.1 a halt _ hb
+  have hgm : g ∈ PEqualNP.TopForm.junk G C := by
+    rw [hJ]
+    rcases hg with rfl | rfl <;> simp
+  have hgo : (gateAt C g).op = GateOp.and := (Finset.mem_filter.mp hgm).2.1
+  have hmem := (or_reaches_and_atom C hAO _ g (by omega) hgo).mp hr
+  have hs := and_operand_support_subset G C hAO htop a halt ham.2.1 _ hb
+  obtain ⟨_,hi,hj⟩ := nested_junk_codes G C i j hJ hc
+  refine ⟨ht,sourceCode G C (n+g),Finset.mem_image.mpr ⟨n+g,hmem,rfl⟩,?_,?_⟩
+  · rcases hg with rfl | rfl
+    · exact Or.inl hi
+    · exact Or.inr hj
+  · rw [two_junk_atom_value_correct G C i j hJ hc _ _ (hs hmem)]
+    exact hv
+
+theorem card_partition_subset {α : Type} [DecidableEq α]
+    (S T : Finset α) (h : T ⊆ S) : (S \ T).card + T.card = S.card := by
+  have hd : Disjoint (S \ T) T := by
+    apply Finset.disjoint_left.mpr
+    intro a ha ht
+    exact (Finset.mem_sdiff.mp ha).2 ht
+  have hu : (S \ T) ∪ T = S := by
+    ext a
+    constructor
+    · intro ha
+      rcases Finset.mem_union.mp ha with ha | ha
+      · exact (Finset.mem_sdiff.mp ha).1
+      · exact h ha
+    · intro ha
+      by_cases ht : a ∈ T
+      · exact Finset.mem_union.mpr (Or.inr ht)
+      · exact Finset.mem_union.mpr (Or.inl (Finset.mem_sdiff.mpr ⟨ha,ht⟩))
+  rw [← Finset.card_union_of_disjoint hd,hu]
+
+/-- Exact cancellation of the official size inequality, in the
+addition-only form used before converting to SAT cardinalities. -/
+theorem h6_cancel_counts (base k c r l E covered size : Nat)
+    (hc : c ≤ k) (hl : l ≤ r) (he : covered ≤ E)
+    (hs : size = 2*k+1+r)
+    (h6 : base+(k-c)+2*c+(r-l) ≤ size+(E-covered)) :
+    base+c+covered ≤ k+1+E+l := by omega
+
+/-- Negative Lambda literals include inactive padding as false
+Lambda bits. Thus their count is m-l, not r-l. -/
+theorem h6_padded_atmost (base k c r l E covered size m : Nat)
+    (hc : c ≤ k) (hl : l ≤ r) (he : covered ≤ E) (hr : r ≤ m)
+    (hs : size = 2*k+1+r)
+    (h6 : base+(k-c)+2*c+(r-l) ≤ size+(E-covered)) :
+    c+covered+(m-l) ≤ k+1+E+m-base := by
+  have h := h6_cancel_counts base k c r l E covered size hc hl he hs h6
+  omega
+
+end L2260FirstMerge
