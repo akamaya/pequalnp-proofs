@@ -1744,6 +1744,7 @@ theorem atom_universe_card {n : Nat} (G : SimpleGraph (Fin n))
     omega
   have hinj : Function.Injective (fun j : Nat => n+j) := by
     intro a b h
+    change n+a = n+b at h
     omega
   unfold atomUniverse
   rw [Finset.card_union_of_disjoint hd, Finset.card_image_of_injective _ hinj,
