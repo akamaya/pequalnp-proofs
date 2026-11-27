@@ -513,3 +513,21 @@ cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_pa
 ```bash
 cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_sweep_v2.py --top-count 7 --or-count 6 --jobs 8 --seconds 30 --solver cadical195
 ```
+
+## Six-hour-budget experiment: incremental components + MDD batches
+
+[Mathematical reduction, benchmark and formalization status](graph_partition_batch_v1.md). 残り6ケースを3種類のOR範囲に統合し、同じ成分数のSAT式と学習節を再利用。first-merge必要条件を直接追加。候補分割をMDDで表し、prefix単位で一括UNSATを試行、TIMEOUT時のみ細分化。depth=8では残存211840分割を初期13879グループにまとめられる（実際のSAT回数・速度は未計測）。独立したMDD全受理経路の列挙検査は31692/139723/70737候補で一致。Lean補題の草案はformalization/FirstMerge.lean。PySAT・Leanの実機検証未完。暫定94/100は変更しない。
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && cd "$HOME/dev/pequalnp-tools" && .venv-sat/bin/python -u pnp_graph_partition_batch_v1.py --self-test
+```
+
+```bash
+cd "$HOME/dev/pequalnp-tools" && nice -n 10 .venv-sat/bin/python -u pnp_graph_partition_batch_v1.py --top-count 7 --or-min 6 --or-max 6 --seed-v2 sat-results/l2260-graph-sweep-v2-k7-r6-compact.sqlite3 --jobs 8 --prefix-depth 8 --seconds 2 --leaf-seconds 15 --wall-seconds 600 --solver cadical195
+```
+
+```bash
+cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean"
+```
+
+既存checkpointは読み取りのみ、新規batch用SQLiteへ保存。全体600秒で探索を打ち切り、中断した未確定分割は残す。速度向上・6時間内の証明完了は保証しない。mainは変更しない。
