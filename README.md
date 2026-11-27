@@ -663,3 +663,11 @@ WSL commit 56b7110 confirmed LEAN AUXILIARY ATOM CHECK OK (exit 0; warnings only
 ```bash
 git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN SYMBOLIC SUPPORT CHECK OK"
 ```
+
+### Official cone bridge and junk-only AND operands
+
+WSL commit b2214bf confirmed LEAN SYMBOLIC SUPPORT CHECK OK (exit 0; warnings only). Added cone_of_read, symbolic_leaf_cone and and_operand_atoms_junk. The intended bridge derives official InCone membership from symbolic OR leaves, then applies TopForm to exclude clean AND leaves from every actual AND operand. Dirty ORs which have not yet been shown to feed an AND still require a minimality/output argument. New section not compiled. Full auxiliary partition, component-local budgets, normalization and CNF/certificates remain pending. SAT source and checkpoints unchanged.
+
+```bash
+git -C "$HOME/dev/pequalnp-tools" pull --ff-only && git -C "$HOME/dev/pequalnp-tools" rev-parse --short HEAD && cd "$HOME/dev/pequalnp-proofs/lean" && lake env lean "$HOME/dev/pequalnp-tools/formalization/FirstMerge.lean" && echo "LEAN JUNK OPERAND CHECK OK"
+```
