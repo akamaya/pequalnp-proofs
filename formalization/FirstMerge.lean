@@ -3558,3 +3558,195 @@ theorem numbered_junk_operand_bound {n : Nat} (G : SimpleGraph (Fin n))
     omega
 
 end L2260FirstMerge
+
+
+/-! ## Dense numbering: no missing indices
+
+Injectivity and the exact source cardinality imply surjectivity.
+For the unpadded source pool every selector index denotes a real node.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem index_rank_image_range (S : Finset Nat) :
+    S.image (indexRank S) = Finset.range S.card := by
+  have hs : S.image (indexRank S) ⊆ Finset.range S.card := by
+    intro z hz
+    obtain ⟨i,hi,he⟩ := Finset.mem_image.mp hz
+    rw [← he]
+    exact Finset.mem_range.mpr (index_rank_lt_card S i hi)
+  have hcard : (S.image (indexRank S)).card = S.card := by
+    apply Finset.card_image_of_injOn
+    intro i hi j hj he
+    exact index_rank_injective S i j hi hj he
+  apply Finset.eq_of_subset_of_card_le hs
+  rw [Finset.card_range,hcard]
+
+theorem index_rank_surjective (S : Finset Nat) (z : Nat)
+    (hz : z < S.card) : ∃ i ∈ S, indexRank S i = z := by
+  have hm : z ∈ Finset.range S.card := Finset.mem_range.mpr hz
+  rw [← index_rank_image_range S] at hm
+  exact Finset.mem_image.mp hm
+
+theorem source_code_image_range {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) :
+    (internalSource G C).image (sourceCode G C) =
+      Finset.range (n+(PEqualNP.TopForm.junk G C).card+(internalOrGates G C).card) := by
+  have hs : (internalSource G C).image (sourceCode G C) ⊆
+      Finset.range (n+(PEqualNP.TopForm.junk G C).card+(internalOrGates G C).card) := by
+    intro z hz
+    obtain ⟨w,hw,he⟩ := Finset.mem_image.mp hz
+    rw [← he]
+    exact Finset.mem_range.mpr (source_code_bound G C w hw)
+  have hcard : ((internalSource G C).image (sourceCode G C)).card =
+      (internalSource G C).card := by
+    apply Finset.card_image_of_injOn
+    intro a ha b hb he
+    exact source_code_injective G C a b ha hb he
+  apply Finset.eq_of_subset_of_card_le hs
+  rw [Finset.card_range,hcard,internal_source_card]
+
+theorem source_code_surjective {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (z : Nat)
+    (hz : z < n+(PEqualNP.TopForm.junk G C).card+(internalOrGates G C).card) :
+    ∃ w ∈ internalSource G C, sourceCode G C w = z := by
+  have hm : z ∈ Finset.range
+      (n+(PEqualNP.TopForm.junk G C).card+(internalOrGates G C).card) :=
+    Finset.mem_range.mpr hz
+  rw [← source_code_image_range G C] at hm
+  exact Finset.mem_image.mp hm
+
+/-! ## Minimum-circuit cuts: semantic redundancy
+
+These are semantic equalities, not yet a minimality theorem. The
+following redirection simulation is intended for the deletion proof.
+-/
+
+theorem support_subset_wire_imp {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (a b : Nat)
+    (hs : symbolicSupport n C a ⊆ symbolicSupport n C b)
+    (x : Fin n → Bool) :
+    wireVal n C a x = true → wireVal n C b x = true := by
+  intro ha
+  obtain ⟨w,hw,ht⟩ := (symbolic_eval C hAO x a).mp ha
+  exact (symbolic_eval C hAO x b).mpr ⟨w,hs hw,ht⟩
+
+theorem comparable_and_value {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (j a b : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.and)
+    (hin : (gateAt C j).inputs = [a,b])
+    (hs : symbolicSupport n C a ⊆ symbolicSupport n C b)
+    (x : Fin n → Bool) :
+    gateVal n C j x = wireVal n C a x := by
+  have hi := support_subset_wire_imp C hAO a b hs x
+  have hv := gateVal_and_eq C hAO.2.1 j a b hj hop hin x
+  change gateVal n C j x = (wireVal n C a x && wireVal n C b x) at hv
+  rw [hv]
+  cases ha : wireVal n C a x with
+  | false => rfl
+  | true =>
+      have hb := hi ha
+      rw [hb]
+
+theorem comparable_or_value {n : Nat} (C : Circuit)
+    (hAO : PEqualNP.TopForm.IsAO2 n C) (j a b : Nat)
+    (hj : j < C.gates.length) (hop : (gateAt C j).op = GateOp.or)
+    (hin : (gateAt C j).inputs = [a,b])
+    (hs : symbolicSupport n C a ⊆ symbolicSupport n C b)
+    (x : Fin n → Bool) :
+    gateVal n C j x = wireVal n C b x := by
+  have hi := support_subset_wire_imp C hAO a b hs x
+  have hv := gateVal_or_eq C hAO.2.1 j a b hj hop hin x
+  change gateVal n C j x = (wireVal n C a x || wireVal n C b x) at hv
+  rw [hv]
+  cases ha : wireVal n C a x with
+  | false => rfl
+  | true =>
+      have hb := hi ha
+      rw [hb]
+
+/-- Remove wire cut, redirect all references to it to an earlier
+wire rep, and shift every later physical index down by one. -/
+def redirectIndex (cut rep i : Nat) : Nat :=
+  if i = cut then rep else if cut < i then i-1 else i
+
+def redirectGate (cut rep : Nat) (g : Gate) : Gate :=
+  ⟨g.op,g.inputs.map (redirectIndex cut rep)⟩
+
+theorem redirect_index_before {cut rep i k : Nat}
+    (hr : rep < cut) (hc : cut < k) (hi : i < k) :
+    redirectIndex cut rep i < k-1 := by
+  unfold redirectIndex
+  split
+  · omega
+  · split <;> omega
+
+theorem redirect_index_end_iff {cut rep i k : Nat}
+    (hr : rep < cut) (hc : cut < k) :
+    redirectIndex cut rep i = k-1 ↔ i = k := by
+  unfold redirectIndex
+  split
+  · omega
+  · split <;> omega
+
+/-- A single suffix step preserves all old wire values under the
+redirection, including the default false reads outside the list. -/
+theorem redirect_step_simulation (cut rep : Nat) (w z : List Bool)
+    (hr : rep < cut) (hc : cut < w.length)
+    (hlen : w.length = z.length+1)
+    (hrel : ∀ i, w.getD i false = z.getD (redirectIndex cut rep i) false)
+    (g : Gate) :
+    ∀ i, (gateStep w g).getD i false =
+      (gateStep z (redirectGate cut rep g)).getD (redirectIndex cut rep i) false := by
+  have hmap : g.inputs.map (fun i => w.getD i false) =
+      (redirectGate cut rep g).inputs.map (fun i => z.getD i false) := by
+    change g.inputs.map (fun i => w.getD i false) =
+      (g.inputs.map (redirectIndex cut rep)).map (fun i => z.getD i false)
+    rw [List.map_map]
+    simp only [Function.comp_def]
+    simp_rw [← hrel]
+  intro i
+  unfold gateStep
+  rw [generic_getD_snoc, generic_getD_snoc]
+  have he : redirectIndex cut rep i = z.length ↔ i = w.length := by
+    have h := redirect_index_end_iff (i := i) hr hc
+    have hlen' : w.length-1 = z.length := by omega
+    rw [hlen'] at h
+    exact h
+  by_cases hi : i = w.length
+  · have hi' := he.mpr hi
+    simp only [if_pos hi,if_pos hi']
+    change g.op.eval (g.inputs.map (fun i => w.getD i false)) =
+      g.op.eval ((redirectGate cut rep g).inputs.map (fun i => z.getD i false))
+    rw [hmap]
+  · have hi' : redirectIndex cut rep i ≠ z.length := fun h => hi (he.mp h)
+    simp only [if_neg hi,if_neg hi']
+    exact hrel i
+
+theorem redirect_fold_simulation (cut rep : Nat) (gs : List Gate)
+    (w z : List Bool) (hr : rep < cut) (hc : cut < w.length)
+    (hlen : w.length = z.length+1)
+    (hrel : ∀ i, w.getD i false = z.getD (redirectIndex cut rep i) false) :
+    ∀ i, (gs.foldl gateStep w).getD i false =
+      ((gs.map (redirectGate cut rep)).foldl gateStep z).getD
+        (redirectIndex cut rep i) false := by
+  induction gs generalizing w z with
+  | nil => exact hrel
+  | cons g gs ih =>
+      change ∀ i, (gs.foldl gateStep (gateStep w g)).getD i false =
+        ((gs.map (redirectGate cut rep)).foldl gateStep
+          (gateStep z (redirectGate cut rep g))).getD (redirectIndex cut rep i) false
+      apply ih (gateStep w g) (gateStep z (redirectGate cut rep g))
+      · simp only [gateStep,List.length_append,List.length_cons,List.length_nil]
+        omega
+      · simp only [gateStep,List.length_append,List.length_cons,List.length_nil]
+        omega
+      · exact redirect_step_simulation cut rep w z hr hc hlen hrel g
+
+end L2260FirstMerge
