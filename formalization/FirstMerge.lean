@@ -7611,3 +7611,270 @@ theorem attached_free_junk_budget {n : Nat} (G : SimpleGraph (Fin n))
   omega
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: free-junk cost and grouped vertex covers -/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+theorem nonraw_junk_nonbearing {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.junk G C)
+    (hn : l (n+j) ∉ (Finset.range n).image l) :
+    ¬ (effectiveSingletons (n := n) C (n+j)).Nonempty := by
+  rintro ⟨u,hu⟩
+  have hj' := Finset.mem_range.mp (Finset.mem_filter.mp hj).1
+  have ha : n+j ∈ atomUniverse G C :=
+    Finset.mem_union.mpr (Or.inr (Finset.mem_image.mpr ⟨j,hj,rfl⟩))
+  have he := hi.2 (n+j) (by omega) ha u hu
+  exact hn (Finset.mem_image.mpr ⟨u.val,Finset.mem_range.mpr u.isLt,he⟩)
+
+/-- A union of label classes containing all raw atoms pays for
+every chosen nonbearing junk atom in that union. -/
+theorem raw_and_free_junk_budget {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hb : LocalBudget G C C.gates.length l)
+    (R J : Finset Nat) (hR : (Finset.range n).image l ⊆ R)
+    (hJ : ∀ j ∈ J, j ∈ PEqualNP.TopForm.junk G C ∧
+      l (n+j) ∈ R ∧ ¬ (effectiveSingletons (n := n) C (n+j)).Nonempty) :
+    n+J.card ≤ R.card +
+      (localDirtyOrGates G C ((atomUniverse G C).filter fun a => l a ∈ R)).card := by
+  classical
+  let V := (atomUniverse G C).filter fun a => l a ∈ R
+  let A := J.image (fun j => n+j)
+  have hV : V ⊆ atomUniverse G C := Finset.filter_subset _ _
+  have hc : ClassClosed (atomUniverse G C) V l := by
+    intro x hx y hy he
+    have h := (Finset.mem_filter.mp hx).2
+    exact Finset.mem_filter.mpr ⟨hy,he ▸ h⟩
+  have hraw : Finset.range n ⊆ localFreeAtoms G C V := by
+    intro a ha
+    have hu : a ∈ atomUniverse G C := Finset.mem_union.mpr (Or.inl ha)
+    have hm : l a ∈ R := hR (Finset.mem_image.mpr ⟨a,ha,rfl⟩)
+    exact mem_local_free_of_raw_or_empty G C V a
+      (Finset.mem_filter.mpr ⟨hu,hm⟩) (Or.inl (Finset.mem_range.mp ha))
+  have hA : A ⊆ localFreeAtoms G C V := by
+    intro a ha
+    obtain ⟨j,hj,he⟩ := Finset.mem_image.mp ha
+    obtain ⟨hj',hm,hn⟩ := hJ j hj
+    rw [← he]
+    have hu : n+j ∈ atomUniverse G C :=
+      Finset.mem_union.mpr (Or.inr (Finset.mem_image.mpr ⟨j,hj',rfl⟩))
+    exact mem_local_free_of_raw_or_empty G C V (n+j)
+      (Finset.mem_filter.mpr ⟨hu,hm⟩) (Or.inr hn)
+  have hd : Disjoint (Finset.range n) A := by
+    apply Finset.disjoint_left.mpr
+    intro a ha h
+    obtain ⟨j,_,he⟩ := Finset.mem_image.mp h
+    have hlt := Finset.mem_range.mp ha
+    change n+j = a at he
+    omega
+  have hAC : A.card = J.card := by
+    apply Finset.card_image_of_injective
+    intro a b he
+    change n+a = n+b at he
+    omega
+  have hsub : Finset.range n ∪ A ⊆ localFreeAtoms G C V := by
+    intro a ha
+    rcases Finset.mem_union.mp ha with ha | ha
+    · exact hraw ha
+    · exact hA ha
+  have hcard := Finset.card_le_card hsub
+  rw [Finset.card_union_of_disjoint hd,Finset.card_range,hAC] at hcard
+  have hrank : atomRank V l ≤ R.card := by
+    apply Finset.card_le_card
+    intro z hz
+    obtain ⟨a,ha,he⟩ := Finset.mem_image.mp hz
+    rw [← he]
+    exact (Finset.mem_filter.mp ha).2
+  have h := closed_subset_or_budget G C l hb V hV hc
+  change n+J.card ≤ R.card+(localDirtyOrGates G C V).card
+  omega
+
+theorem shared_free_junk_cost {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l)
+    (hb : LocalBudget G C C.gates.length l)
+    (i j : Nat) (hJ : PEqualNP.TopForm.junk G C = {i,j})
+    (hne : i ≠ j) (he : l (n+i) = l (n+j))
+    (hn : l (n+i) ∉ (Finset.range n).image l) :
+    n+1 ≤ ((Finset.range n).image l).card+(PEqualNP.TopForm.orN G C).card ∧
+      ∃ g ∈ localDirtyOrGates G C (atomClass (atomUniverse G C) l (l (n+i))), True := by
+  classical
+  let R := (Finset.range n).image l
+  let c := l (n+i)
+  have hiJ : i ∈ PEqualNP.TopForm.junk G C := by rw [hJ]; simp
+  have hjJ : j ∈ PEqualNP.TopForm.junk G C := by rw [hJ]; simp
+  have hni := nonraw_junk_nonbearing G C l hi i hiJ hn
+  have hnj := nonraw_junk_nonbearing G C l hi j hjJ (by rwa [← he])
+  have hcond : ∀ a ∈ ({i,j} : Finset Nat),
+      a ∈ PEqualNP.TopForm.junk G C ∧ l (n+a) ∈ insert c R ∧
+      ¬ (effectiveSingletons (n := n) C (n+a)).Nonempty := by
+    intro a ha
+    have h : a = i ∨ a = j := by simpa using ha
+    rcases h with rfl | rfl
+    · exact ⟨hiJ,Finset.mem_insert_self _ _,hni⟩
+    · exact ⟨hjJ,by rw [← he]; exact Finset.mem_insert_self _ _,hnj⟩
+  have h := raw_and_free_junk_budget G C l hb (insert c R) {i,j}
+    (fun _ hx => Finset.mem_insert_of_mem hx) hcond
+  have hcard : ({i,j} : Finset Nat).card = 2 := by
+    rw [Finset.card_insert_of_notMem (by simp [hne])]
+    simp
+  have hc : c ∉ R := hn
+  rw [hcard,Finset.card_insert_of_notMem hc] at h
+  have hor := Finset.card_le_card (local_dirty_or_subset G C
+    ((atomUniverse G C).filter fun a => l a ∈ insert c R))
+  refine ⟨by omega,?_⟩
+  let V := atomClass (atomUniverse G C) l c
+  have hia : n+i ∈ localFreeAtoms G C V := by
+    apply mem_local_free_of_raw_or_empty G C V
+    · exact Finset.mem_filter.mpr ⟨Finset.mem_union.mpr
+        (Or.inr (Finset.mem_image.mpr ⟨i,hiJ,rfl⟩)),rfl⟩
+    · exact Or.inr hni
+  have hja : n+j ∈ localFreeAtoms G C V := by
+    apply mem_local_free_of_raw_or_empty G C V
+    · exact Finset.mem_filter.mpr ⟨Finset.mem_union.mpr
+        (Or.inr (Finset.mem_image.mpr ⟨j,hjJ,rfl⟩)),he.symm⟩
+    · exact Or.inr hnj
+  have hab : n+i ≠ n+j := by omega
+  have hpair : ({n+i,n+j} : Finset Nat) ⊆ localFreeAtoms G C V := by
+    intro a ha
+    have hh : a = n+i ∨ a = n+j := by simpa using ha
+    rcases hh with rfl | rfl
+    · exact hia
+    · exact hja
+  have hp := Finset.card_le_card hpair
+  rw [Finset.card_insert_of_notMem (by simp [hab]),Finset.card_singleton] at hp
+  have hbudget := component_or_budget G C l hb c
+  have hpos : 0 < (localDirtyOrGates G C V).card := by
+    change (localFreeAtoms G C V).card ≤ 1+(localDirtyOrGates G C V).card at hbudget
+    omega
+  obtain ⟨g,hg⟩ := Finset.card_pos.mp hpos
+  exact ⟨g,hg,True.intro⟩
+
+def blockPairKey {α : Type} (l : α → Nat) (u v : α) : Nat × Nat :=
+  (min (l u) (l v),max (l u) (l v))
+
+theorem same_block_pair_key {α : Type} (l : α → Nat) (u v x y : α)
+    (h : SameBlockPair l u v x y) :
+    blockPairKey l u v = blockPairKey l x y := by
+  rcases h with ⟨h1,h2⟩ | ⟨h1,h2⟩
+  · simp [blockPairKey,h1,h2]
+  · simp [blockPairKey,h1,h2,min_comm,max_comm]
+
+/-- Every clean AND that crosses at least one edge supplies one
+centre and one unordered block pair, valid for all of its crossings. -/
+theorem clean_and_grouped_center {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (h4 : PEqualNP.TopForm.NoFourCycle G) (l : Fin n → Nat)
+    (j : Nat) (hj : j ∈ PEqualNP.TopForm.tops G C)
+    (hA : SupportLocal l (effectiveSingletons C (PEqualNP.TopForm.opnd C j 0)))
+    (hB : SupportLocal l (effectiveSingletons C (PEqualNP.TopForm.opnd C j 1)))
+    (u v : Fin n) (he : GateCross C j u v) :
+    ∃ c : Fin n, ∀ x y : Fin n, GateCross C j x y →
+      (c = x ∨ c = y) ∧ blockPairKey l u v = blockPairKey l x y := by
+  have hm := Finset.mem_filter.mp hj
+  have hj' := Finset.mem_range.mp hm.1
+  let A := effectiveSingletons C (PEqualNP.TopForm.opnd C j 0)
+  let B := effectiveSingletons C (PEqualNP.TopForm.opnd C j 1)
+  have hs : A.card ≤ 1 ∨ B.card ≤ 1 :=
+    clean_effective_star G C hAO h4 j _ _ hj' hm.2.1
+      (actual_opnds C hAO j hj').1 hm.2.2
+  have hu : CrossPair A B u v := gate_cross_pair C j u v he
+  have hneA : A.Nonempty := by
+    rcases hu with ⟨hu,hv⟩ | ⟨hu,hv⟩
+    · exact ⟨u,hu⟩
+    · exact ⟨v,hv⟩
+  have hneB : B.Nonempty := by
+    rcases hu with ⟨hu,hv⟩ | ⟨hu,hv⟩
+    · exact ⟨v,hv⟩
+    · exact ⟨u,hu⟩
+  rcases hs with hs | hs
+  · obtain ⟨c,hc⟩ := hneA
+    refine ⟨c,?_⟩
+    intro x y hxy
+    have hh : CrossPair A B x y := gate_cross_pair C j x y hxy
+    refine ⟨?_,same_block_pair_key l u v x y
+      (local_cross_same_pair l A B hA hB u v x y hu hh)⟩
+    rcases hh with ⟨hx,hy⟩ | ⟨hx,hy⟩
+    · exact Or.inl (Finset.card_le_one.mp hs c hc x hx)
+    · exact Or.inr (Finset.card_le_one.mp hs c hc y hy)
+  · obtain ⟨c,hc⟩ := hneB
+    refine ⟨c,?_⟩
+    intro x y hxy
+    have hh : CrossPair A B x y := gate_cross_pair C j x y hxy
+    refine ⟨?_,same_block_pair_key l u v x y
+      (local_cross_same_pair l A B hA hB u v x y hu hh)⟩
+    rcases hh with ⟨hx,hy⟩ | ⟨hx,hy⟩
+    · exact Or.inr (Finset.card_le_one.mp hs c hc y hy)
+    · exact Or.inl (Finset.card_le_one.mp hs c hc x hx)
+
+theorem residual_grouped_cover {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (h4 : PEqualNP.TopForm.NoFourCycle G) (l : Nat → Nat)
+    (hi : AuxInvariant G C C.gates.length l) :
+    ∃ S : Finset ((Nat × Nat) × Fin n),
+      S.card ≤ (PEqualNP.TopForm.tops G C).card ∧
+      ∀ u v : Fin n, G.Adj u v →
+        (∀ j ∈ PEqualNP.TopForm.junk G C, ¬ GateCross C j u v) →
+        (blockPairKey (fun a : Fin n => l a.val) u v,u) ∈ S ∨
+        (blockPairKey (fun a : Fin n => l a.val) u v,v) ∈ S := by
+  classical
+  let T := (PEqualNP.TopForm.tops G C).filter fun j =>
+    ∃ u v : Fin n, GateCross C j u v
+  let L := fun a : Fin n => l a.val
+  have hc (j : T) : ∃ p : (Nat × Nat) × Fin n,
+      ∀ x y : Fin n, GateCross C j.val x y →
+        (p.2 = x ∨ p.2 = y) ∧ p.1 = blockPairKey L x y := by
+    obtain ⟨hj,u,v,he⟩ := Finset.mem_filter.mp j.property
+    have hm := Finset.mem_filter.mp hj
+    have hj' := Finset.mem_range.mp hm.1
+    obtain ⟨hin,ha,hb⟩ := actual_opnds C hmin.1 j.val hj'
+    have hloc (b : Fin 2) : SupportLocal L
+        (effectiveSingletons C (PEqualNP.TopForm.opnd C j.val b)) := by
+      have hr : PEqualNP.TopForm.opnd C j.val b ∈ (gateAt C j.val).inputs := by
+        fin_cases b <;> rw [hin] <;> simp
+      have hw := hmin.1.2.1 j.val hj' _ hr
+      exact aux_effective_local G C hmin.1 C.gates.length l hi _ (by omega)
+        (and_operand_support_subset G C hmin.1 htop j.val hj' hm.2.1 _ hr)
+    obtain ⟨c,hc⟩ := clean_and_grouped_center G C hmin.1 h4 L j.val hj
+      (hloc 0) (hloc 1) u v he
+    exact ⟨(blockPairKey L u v,c),hc⟩
+  let pick : T → (Nat × Nat) × Fin n := fun j => Classical.choose (hc j)
+  let S := T.attach.image pick
+  have hcard : S.card ≤ (PEqualNP.TopForm.tops G C).card := by
+    have h := Finset.card_image_le (s := T.attach) (f := pick)
+    rw [Finset.card_attach] at h
+    exact h.trans (Finset.card_le_card (Finset.filter_subset _ _))
+  refine ⟨S,hcard,?_⟩
+  intro u v he hn
+  obtain ⟨j,hj,hop,hcross⟩ := edge_has_gate_cross G C hmin u v he
+  have hbelow : PEqualNP.TopForm.BelowF G C j := by
+    by_contra hd
+    exact hn j (and_not_below_is_junk G C j hj hop hd) hcross
+  have ht : j ∈ T :=
+    Finset.mem_filter.mpr ⟨Finset.mem_filter.mpr ⟨Finset.mem_range.mpr hj,hop,hbelow⟩,
+      u,v,hcross⟩
+  let a : T := ⟨j,ht⟩
+  have hmem : pick a ∈ S :=
+    Finset.mem_image.mpr ⟨a,Finset.mem_attach _ _,rfl⟩
+  have hp := Classical.choose_spec (hc a) u v hcross
+  change ((pick a).2 = u ∨ (pick a).2 = v) ∧
+    (pick a).1 = blockPairKey L u v at hp
+  rcases hp.1 with h | h
+  · left
+    have heq : pick a = (blockPairKey L u v,u) := Prod.ext hp.2 h
+    rwa [heq] at hmem
+  · right
+    have heq : pick a = (blockPairKey L u v,v) := Prod.ext hp.2 h
+    rwa [heq] at hmem
+
+end L2260FirstMerge
