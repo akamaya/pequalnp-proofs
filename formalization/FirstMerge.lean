@@ -6743,3 +6743,194 @@ theorem h6_padded_atmost (base k c r l E covered size m : Nat)
   omega
 
 end L2260FirstMerge
+
+
+/-! ## SAT reduction: exact semantic counting sets
+
+Reconstruct the raw sides from numbered support bits, then reconstruct
+centreless, covered edges and Lambda. The reachability predicate in
+numberedLambda is still the official OR closure; its implementation
+by the backwards selector recurrence is a separate step.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+open PEqualNP.CleanedNonEdge
+
+attribute [local instance] gateOpDecEq
+
+def numberedRawSide {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (w : Nat) : Finset (Fin n) :=
+  Finset.univ.filter fun u => u.val ∈ numberedSupport G C w
+
+theorem numbered_raw_side_eq {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (w : Nat) (hw : w < n+C.gates.length)
+    (hs : symbolicSupport n C w ⊆ atomUniverse G C) :
+    numberedRawSide G C w = PEqualNP.TopForm.orIn n C w := by
+  ext u
+  simp only [numberedRawSide,Finset.mem_filter,Finset.mem_univ,true_and]
+  exact (or_in_numbered_iff G C hAO w hw hs u).symm
+
+theorem numbered_top_side_eq {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (a : Nat) (ha : a ∈ PEqualNP.TopForm.tops G C) (b : Fin 2) :
+    numberedRawSide G C (PEqualNP.TopForm.opnd C a b) =
+      PEqualNP.TopForm.side C a b := by
+  have hm := Finset.mem_filter.mp ha
+  have halt := Finset.mem_range.mp hm.1
+  obtain ⟨hin,_,_⟩ := actual_opnds C hAO a halt
+  have hb : PEqualNP.TopForm.opnd C a b ∈ (gateAt C a).inputs := by
+    fin_cases b <;> rw [hin] <;> simp
+  have hw := hAO.2.1 a halt _ hb
+  exact numbered_raw_side_eq G C hAO _ (by omega)
+    (and_operand_support_subset G C hAO htop a halt hm.2.1 _ hb)
+
+theorem numbered_internal_or_side_eq {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (a : Nat) (ha : a ∈ internalOrGates G C) (b : Fin 2) :
+    numberedRawSide G C (PEqualNP.TopForm.opnd C a b) =
+      PEqualNP.TopForm.orIn n C (PEqualNP.TopForm.opnd C a b) := by
+  obtain ⟨halt,hop,hs⟩ := internal_or_mem G C a ha
+  obtain ⟨hin,_,_⟩ := actual_opnds C hAO a halt
+  have hb : PEqualNP.TopForm.opnd C a b ∈ (gateAt C a).inputs := by
+    fin_cases b <;> rw [hin] <;> simp
+  have hw := hAO.2.1 a halt _ hb
+  exact numbered_raw_side_eq G C hAO _ (by omega)
+    ((or_reader_support_subset C hAO a _ halt hop hb).trans hs)
+
+def numberedCentreless {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset Nat :=
+  (PEqualNP.TopForm.tops G C).filter fun a =>
+    numberedRawSide G C (PEqualNP.TopForm.opnd C a 0) = ∅ ∨
+    numberedRawSide G C (PEqualNP.TopForm.opnd C a 1) = ∅
+
+theorem numbered_centreless_eq {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) :
+    numberedCentreless G C = PEqualNP.TopForm.centreless G C := by
+  ext a
+  simp only [numberedCentreless,PEqualNP.TopForm.centreless,Finset.mem_filter]
+  constructor <;> rintro ⟨ha,h⟩
+  · exact ⟨ha,by
+      rw [numbered_top_side_eq G C hAO htop a ha 0,
+        numbered_top_side_eq G C hAO htop a ha 1] at h
+      exact h⟩
+  · exact ⟨ha,by
+      rw [numbered_top_side_eq G C hAO htop a ha 0,
+        numbered_top_side_eq G C hAO htop a ha 1]
+      exact h⟩
+
+def numberedStarEdges {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset (Sym2 (Fin n)) :=
+  (PEqualNP.TopForm.tops G C).biUnion fun a =>
+    (numberedRawSide G C (PEqualNP.TopForm.opnd C a 0) ×ˢ
+      numberedRawSide G C (PEqualNP.TopForm.opnd C a 1)).image
+        fun p => s(p.1,p.2)
+
+theorem numbered_star_edges_eq {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) :
+    numberedStarEdges G C = PEqualNP.TopForm.starEdges G C := by
+  classical
+  ext e
+  simp only [numberedStarEdges,PEqualNP.TopForm.starEdges,Finset.mem_biUnion]
+  constructor <;> rintro ⟨a,ha,h⟩
+  · refine ⟨a,ha,?_⟩
+    rw [numbered_top_side_eq G C hAO htop a ha 0,
+      numbered_top_side_eq G C hAO htop a ha 1] at h
+    exact h
+  · refine ⟨a,ha,?_⟩
+    rw [numbered_top_side_eq G C hAO htop a ha 0,
+      numbered_top_side_eq G C hAO htop a ha 1]
+    exact h
+
+def numberedCovered {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset (Sym2 (Fin n)) :=
+  G.edgeFinset ∩ numberedStarEdges G C
+
+theorem numbered_covered_partition {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (htop : PEqualNP.TopForm.TopForm G C) :
+    (PEqualNP.TopForm.Ustar G C).card+(numberedCovered G C).card =
+      G.edgeFinset.card := by
+  classical
+  have hsub : numberedCovered G C ⊆ G.edgeFinset :=
+    fun _ h => (Finset.mem_inter.mp h).1
+  have he : G.edgeFinset \ numberedCovered G C = PEqualNP.TopForm.Ustar G C := by
+    ext e
+    simp only [numberedCovered,PEqualNP.TopForm.Ustar,
+      numbered_star_edges_eq G C hAO htop,Finset.mem_sdiff,Finset.mem_inter]
+    tauto
+  rw [← he]
+  exact card_partition_subset _ _ hsub
+
+noncomputable def numberedLambda {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) : Finset Nat := by
+  classical
+  exact (internalOrGates G C).filter fun h =>
+    (numberedRawSide G C (PEqualNP.TopForm.opnd C h 0)).Nonempty ∧
+    (numberedRawSide G C (PEqualNP.TopForm.opnd C h 1)).Nonempty ∧
+    ∃ a ∈ PEqualNP.TopForm.tops G C, ∃ b : Fin 2,
+      (numberedRawSide G C (PEqualNP.TopForm.opnd C a (1-b))).card = 1 ∧
+      OrReaches n C (PEqualNP.TopForm.opnd C a b) h
+
+theorem numbered_lambda_eq {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C) :
+    numberedLambda G C = PEqualNP.TopForm.lam G C := by
+  classical
+  ext h
+  simp only [numberedLambda,PEqualNP.TopForm.lam,Finset.mem_filter]
+  have he := internal_or_eq_orN G C hmin htop
+  constructor
+  · rintro ⟨hh,h0,h1,a,ha,b,hc,hr⟩
+    refine ⟨he ▸ hh,?_,?_,a,ha,b,?_,hr⟩
+    · rwa [numbered_internal_or_side_eq G C hmin.1 h hh 0] at h0
+    · rwa [numbered_internal_or_side_eq G C hmin.1 h hh 1] at h1
+    · rwa [numbered_top_side_eq G C hmin.1 htop a ha (1-b)] at hc
+  · rintro ⟨hh,h0,h1,a,ha,b,hc,hr⟩
+    have hh' : h ∈ internalOrGates G C := he.symm ▸ hh
+    refine ⟨hh',?_,?_,a,ha,b,?_,hr⟩
+    · rwa [numbered_internal_or_side_eq G C hmin.1 h hh' 0]
+    · rwa [numbered_internal_or_side_eq G C hmin.1 h hh' 1]
+    · rwa [numbered_top_side_eq G C hmin.1 htop a ha (1-b)]
+
+/-- The official h6 inequality implies exactly the semantic count
+bound with m padded OR slots. This does not assume h6 for arbitrary
+circuits: it is an explicit hypothesis of the posted theorem. -/
+theorem h6_numbered_counts {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hmin : PEqualNP.TopForm.IsLeastAO G C)
+    (htop : PEqualNP.TopForm.TopForm G C)
+    (u v : Fin n) (he : G.Adj u v)
+    (hJ : (PEqualNP.TopForm.junk G C).card = 2)
+    (base m : Nat) (hm : (internalOrGates G C).card ≤ m)
+    (h6 : base+((PEqualNP.TopForm.tops G C) \
+      (PEqualNP.TopForm.centreless G C)).card+
+      2*(PEqualNP.TopForm.centreless G C).card+
+      ((PEqualNP.TopForm.orN G C) \ (PEqualNP.TopForm.lam G C)).card ≤
+      C.size+(PEqualNP.TopForm.Ustar G C).card) :
+    (numberedCentreless G C).card+(numberedCovered G C).card+
+      (m-(numberedLambda G C).card) ≤
+      (PEqualNP.TopForm.tops G C).card+1+G.edgeFinset.card+m-base := by
+  classical
+  have hc : PEqualNP.TopForm.centreless G C ⊆ PEqualNP.TopForm.tops G C :=
+    fun _ h => (Finset.mem_filter.mp h).1
+  have hl : PEqualNP.TopForm.lam G C ⊆ PEqualNP.TopForm.orN G C :=
+    fun _ h => (Finset.mem_filter.mp h).1
+  have hcc := Finset.card_le_card hc
+  have hll := Finset.card_le_card hl
+  have hcpart := card_partition_subset _ _ hc
+  have hlpart := card_partition_subset _ _ hl
+  have hepart := numbered_covered_partition G C hmin.1 htop
+  have hsize := sat_gate_count_exact G C hmin htop u v he hJ
+  have hr := internal_or_eq_orN G C hmin htop
+  rw [hr] at hm hsize
+  rw [numbered_centreless_eq G C hmin.1 htop,
+    numbered_lambda_eq G C hmin htop]
+  omega
+
+end L2260FirstMerge
