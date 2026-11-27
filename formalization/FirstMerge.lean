@@ -923,3 +923,121 @@ theorem merge_union_local {α β : Type} [Fintype α] [DecidableEq α] [Decidabl
   · exact merge_count label _ _
 
 end L2260FirstMerge
+
+/-! ## Component labels for a whole official circuit
+
+This proves the original-vertex component lower bound without invoking
+normalization or constructing the two auxiliary junk atoms. The labels
+are built by induction on the actual gate index.
+-/
+namespace L2260FirstMerge
+
+open PEqualNP.CircuitLowerBounds
+open PEqualNP.EdgeOwnership
+open PEqualNP.MetaComplexity.NestedCover
+
+def dirtyOrPrefix {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat) : Nat :=
+  ((Finset.range j).filter fun i =>
+    (gateAt C i).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C i).card
+
+private theorem dirtyOrPrefix_succ {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (j : Nat) :
+    dirtyOrPrefix G C (j+1) =
+      dirtyOrPrefix G C j +
+        (if (gateAt C j).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C j
+          then 1 else 0) := by
+  classical
+  by_cases h : (gateAt C j).op = GateOp.or ∧ ¬ PEqualNP.TopForm.BelowF G C j
+  · simp [dirtyOrPrefix, Finset.range_succ, h]
+  · simp [dirtyOrPrefix, Finset.range_succ, h]
+
+/-- At every gate prefix, all effective singleton supports can be
+made local, using at most one class merge per dirty OR. -/
+theorem prefix_component_labels {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C)
+    (j : Nat) (hj : j ≤ C.gates.length) :
+    ∃ label : Fin n → Fin n,
+      (∀ w < n+j, SupportLocal label (effectiveSingletons C w)) ∧
+      n ≤ labelCount label + dirtyOrPrefix G C j := by
+  classical
+  induction j with
+  | zero =>
+      refine ⟨id,?_,?_⟩
+      · intro w hw
+        have hw' : w < n := by omega
+        have he : effectiveSingletons (n := n) C w = {⟨w,hw'⟩} :=
+          effective_input C (⟨w,hw'⟩ : Fin n)
+        rw [he]
+        exact local_singleton id (⟨w,hw'⟩ : Fin n)
+      · simp [labelCount, dirtyOrPrefix]
+  | succ j ih =>
+      have hj' : j < C.gates.length := by omega
+      obtain ⟨label,hlocal,hcount⟩ := ih (by omega)
+      have hmem : gateAt C j ∈ C.gates := by
+        obtain ⟨pre,g,post,hg,hpre⟩ := split_at_index C.gates j hj'
+        have hat : gateAt C j = g := by
+          unfold gateAt
+          rw [hg, ← hpre]
+          exact split_getD pre post g _
+        rw [hat,hg]
+        simp
+      obtain ⟨a,b,hin⟩ := two_inputs (gateAt C j).inputs (hAO.2.2 _ hmem)
+      have ha : a < n+j := by
+        apply hAO.2.1 j hj' a
+        rw [hin]
+        simp
+      have hb : b < n+j := by
+        apply hAO.2.1 j hj' b
+        rw [hin]
+        simp
+      -- If no relabeling is needed, extend the old locality invariant.
+      have extend (hnew : SupportLocal label (effectiveSingletons C (n+j))) :
+          ∀ w < n+(j+1), SupportLocal label (effectiveSingletons C w) := by
+        intro w hw
+        by_cases h : w < n+j
+        · exact hlocal w h
+        · have he : w = n+j := by omega
+          rw [he]
+          exact hnew
+      rcases hAO.1 _ hmem with hop | hop
+      · have hnew : SupportLocal label (effectiveSingletons C (n+j)) := by
+          rw [effective_and C hAO.2.1 j a b hj' hop hin]
+          exact local_inter label _ _ (hlocal a ha)
+        refine ⟨label,extend hnew,?_⟩
+        rw [dirtyOrPrefix_succ]
+        split <;> omega
+      · by_cases hc : PEqualNP.TopForm.BelowF G C j
+        · have hnew : SupportLocal label (effectiveSingletons C (n+j)) := by
+            rw [effective_clean_empty G C j hc]
+            exact local_empty label
+          refine ⟨label,extend hnew,?_⟩
+          rw [dirtyOrPrefix_succ]
+          split <;> omega
+        · obtain ⟨label',hpres,hunion,hmerge⟩ :=
+            merge_union_local label (effectiveSingletons C a)
+              (effectiveSingletons C b) (hlocal a ha) (hlocal b hb)
+          refine ⟨label',?_,?_⟩
+          · intro w hw
+            by_cases h : w < n+j
+            · exact hpres _ (hlocal w h)
+            · have he : w = n+j := by omega
+              rw [he,effective_or C hAO.2.1 j a b hj' hop hin]
+              exact hunion
+          · rw [dirtyOrPrefix_succ]
+            have hd : (gateAt C j).op = GateOp.or ∧
+                ¬ PEqualNP.TopForm.BelowF G C j := ⟨hop,hc⟩
+            rw [if_pos hd]
+            omega
+
+/-- The actual circuit admits a partition of its original inputs with
+at least n - |orN| blocks. Every real wire's effective singleton
+support is local in this partition. -/
+theorem circuit_component_labels {n : Nat} (G : SimpleGraph (Fin n))
+    [DecidableRel G.Adj] (C : Circuit) (hAO : PEqualNP.TopForm.IsAO2 n C) :
+    ∃ label : Fin n → Fin n,
+      (∀ w < n+C.gates.length, SupportLocal label (effectiveSingletons C w)) ∧
+      n ≤ labelCount label + (PEqualNP.TopForm.orN G C).card := by
+  exact prefix_component_labels G C hAO C.gates.length (Nat.le_refl _)
+
+end L2260FirstMerge
